@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "charm-lib-kubernetes-snaps"
+version = "0.0.0"
+authors = [
+  {name="George Kraft", email="george.kraft@canonical.com"},
+]
+description = "Charm library for installing and configuring Kubernetes snaps"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "charm-lib-contextual-status",
+  "ops",
+]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/charmed-kubernetes/charm-lib-kubernetes-snaps"
+"Bug Tracker" = "https://github.com/charmed-kubernetes/charm-lib-kubernetes-snaps/issues"

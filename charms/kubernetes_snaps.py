@@ -37,6 +37,7 @@ def get_bind_addresses(ipv4=True, ipv6=True):
         if addr["operstate"].upper() != "UP" or any(
             addr["ifname"].startswith(prefix) for prefix in ignore_interfaces
         ):
+            log.debug(f"Skipping bind address for interface {addr.get('ifname')}")
             continue
 
         for ifc in addr["addr_info"]:

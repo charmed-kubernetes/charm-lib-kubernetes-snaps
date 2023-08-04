@@ -70,7 +70,9 @@ def install(channel, control_plane=False):
     If control_plane=True, then also install the Kubernetes control plane snaps.
     """
 
-    install_snap("kubectl", channel=channel, classic=True)
+    # Refresh with ignore_running=True ONLY for non-daemon apps (i.e. kubectl)
+    # https://bugs.launchpad.net/bugs/1987331
+    install_snap("kubectl", channel=channel, classic=True, ignore_running=True)
     install_snap("kubelet", channel=channel, classic=True)
     install_snap("kube-proxy", channel=channel, classic=True)
 
@@ -81,13 +83,15 @@ def install(channel, control_plane=False):
         install_snap("cdk-addons", channel=channel)
 
 
-def install_snap(name, channel, classic=False):
+def install_snap(name, channel, classic=False, ignore_running=False):
     """ Install or refresh a snap """
     status.add(MaintenanceStatus(f"Installing {name} snap"))
 
+    is_refresh = is_snap_installed(name)
+
     cmd = [
         "snap",
-        "refresh" if is_snap_installed(name) else "install",
+        "refresh" if is_refresh else "install",
         name,
         "--channel",
         channel
@@ -95,6 +99,9 @@ def install_snap(name, channel, classic=False):
 
     if classic:
         cmd.append('--classic')
+
+    if is_refresh and ignore_running:
+        cmd.append('--ignore-running')
 
     check_call(cmd)
 

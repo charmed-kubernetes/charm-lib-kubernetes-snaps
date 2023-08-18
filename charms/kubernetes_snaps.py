@@ -331,6 +331,26 @@ def configure_scheduler(extra_args_config, kubeconfig):
     configure_kubernetes_service("kube-scheduler", scheduler_opts, extra_args_config)
 
 
+def configure_services_restart_always(control_plane=False):
+    services = ["kubelet", "kube-proxy"]
+    if control_plane:
+        services += ["kube-apiserver", "kube-controller-manager", "kube-scheduler"]
+
+    for service in services:
+        dest_dir = f"/etc/systemd/system/snap.{service}.daemon.service.d"
+        os.makedirs(dest_dir, exist_ok=True)
+        with open(dest_dir + "/always-restart.conf", "w") as f:
+            f.write(
+                """[Unit]
+StartLimitIntervalSec=0
+
+[Service]
+RestartSec=10"""
+            )
+
+    check_call(["systemctl", "daemon-reload"])
+
+
 def create_kubeconfig(dest, ca, server, user, token):
     ca_base64 = b64encode(ca.encode("utf-8")).decode("utf-8")
     kubeconfig = {

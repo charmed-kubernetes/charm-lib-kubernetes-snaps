@@ -444,6 +444,12 @@ def get_public_address():
     return check_output(cmd).decode("UTF-8").strip()
 
 
+def get_sandbox_image(registry):
+    # Try to track upstream version if possible, see for example:
+    # https://github.com/kubernetes/kubernetes/blob/v1.28.1/build/dependencies.yaml#L175
+    return "{}/pause:3.9".format(registry)
+
+
 @status.on_error(BlockedStatus("Failed to install Kubernetes snaps"))
 def install(channel, control_plane=False):
     """Install or refresh Kubernetes snaps. This includes the basic snaps to

@@ -520,6 +520,32 @@ def service_restart(name):
     call(cmd)
 
 
+def set_default_cni_conf_file(cni_conf_file):
+    """Set the default CNI configuration to be used by CNI clients
+    (kubelet, containerd).
+
+    CNI clients choose whichever CNI config in /etc/cni/net.d/ is
+    alphabetically first, so we accomplish this by creating a file named
+    /etc/cni/net.d/01-default.conflist, which is alphabetically earlier than
+    typical CNI config names, e.g. 10-flannel.conflist and 10-calico.conflist
+
+    The created 01-default.conflist file is a symlink to whichever CNI config
+    is actually going to be used.
+    """
+    cni_conf_dir = "/etc/cni/net.d"
+    os.makedirs(cni_conf_dir, exist_ok=True)
+
+    # Clean up current default
+    for filename in os.listdir(cni_conf_dir):
+        if filename.startswith("01-default."):
+            os.remove(cni_conf_dir + "/" + filename)
+
+    # Set new default if specified
+    if cni_conf_file:
+        dest = cni_conf_dir + "/01-default." + cni_conf_file.split(".")[-1]
+        os.symlink(cni_conf_file, dest)
+
+
 def write_certificates(ca, client_cert, client_key, server_cert, server_key):
     cert_dir = "/root/cdk"
     os.makedirs(cert_dir, exist_ok=True)

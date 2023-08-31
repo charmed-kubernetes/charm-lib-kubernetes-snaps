@@ -384,6 +384,7 @@ def create_kubeconfig(dest, ca, server, user, token):
 
 def create_service_account_key():
     dest = "/root/cdk/serviceaccount.key"
+    os.makedirs("/root/cdk", exist_ok=True)
     if not os.path.exists(dest):
         cmd = ["openssl", "genrsa", "-out", dest, "2048"]
         check_call(cmd)
@@ -576,5 +577,6 @@ def write_etcd_client_credentials(ca, cert, key):
 
 def write_service_account_key(key):
     dest = "/root/cdk/serviceaccount.key"
+    os.makedirs("/root/cdk", exist_ok=True)
     with open(dest, "w") as f:
         f.write(key)

@@ -265,6 +265,16 @@ def configure_controller_manager(
     )
 
 
+def configure_kernel_parameters(params):
+    conf_file = "\n".join(f"{key} = {value}" for key, value in sorted(params.items()))
+
+    dest = "/etc/sysctl.d/50-kubernetes-charm.conf"
+    with open(dest, "w") as f:
+        f.write(conf_file)
+
+    check_call(["sysctl", "-p", dest])
+
+
 def configure_kubernetes_service(service, base_args, extra_args_config):
     extra_args = parse_extra_args(extra_args_config)
 

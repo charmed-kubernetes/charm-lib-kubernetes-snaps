@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from base64 import b64encode
+from pathlib import Path
 from socket import gethostname
 
 import charms.contextual_status as status
@@ -11,6 +12,7 @@ from ops import BlockedStatus, MaintenanceStatus
 from subprocess import call, CalledProcessError, check_call, check_output, DEVNULL
 
 log = logging.getLogger(__name__)
+service_account_key_path = Path("/root/cdk/serviceaccount.key")
 tls_ciphers_intermediate = [
     # https://wiki.mozilla.org/Security/Server_Side_TLS
     # https://ssl-config.mozilla.org/#server=go&config=intermediate
@@ -54,8 +56,8 @@ def configure_apiserver(
     api_opts["authentication-token-webhook-cache-ttl"] = "1m0s"
     api_opts["authentication-token-webhook-config-file"] = auth_webhook_conf
     api_opts["service-account-issuer"] = "https://kubernetes.default.svc"
-    api_opts["service-account-signing-key-file"] = "/root/cdk/serviceaccount.key"
-    api_opts["service-account-key-file"] = "/root/cdk/serviceaccount.key"
+    api_opts["service-account-signing-key-file"] = str(service_account_key_path)
+    api_opts["service-account-key-file"] = str(service_account_key_path)
     api_opts[
         "kubelet-preferred-address-types"
     ] = "InternalIP,Hostname,InternalDNS,ExternalDNS,ExternalIP"
@@ -209,7 +211,7 @@ def configure_controller_manager(
     controller_opts["authorization-kubeconfig"] = kubeconfig
     controller_opts["authentication-kubeconfig"] = kubeconfig
     controller_opts["use-service-account-credentials"] = "true"
-    controller_opts["service-account-private-key-file"] = "/root/cdk/serviceaccount.key"
+    controller_opts["service-account-private-key-file"] = str(service_account_key_path)
     controller_opts["tls-cert-file"] = "/root/cdk/server.crt"
     controller_opts["tls-private-key-file"] = "/root/cdk/server.key"
     controller_opts["cluster-name"] = cluster_name
@@ -383,13 +385,12 @@ def create_kubeconfig(dest, ca, server, user, token):
 
 
 def create_service_account_key():
-    dest = "/root/cdk/serviceaccount.key"
-    os.makedirs("/root/cdk", exist_ok=True)
-    if not os.path.exists(dest):
-        cmd = ["openssl", "genrsa", "-out", dest, "2048"]
+    dest = service_account_key_path
+    dest.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    if not dest.exists():
+        cmd = ["openssl", "genrsa", "-out", str(dest), "2048"]
         check_call(cmd)
-    with open(dest) as f:
-        return f.read()
+    return dest.read_text()
 
 
 def get_bind_addresses(ipv4=True, ipv6=True):
@@ -445,10 +446,10 @@ def get_public_address():
     return check_output(cmd).decode("UTF-8").strip()
 
 
-def get_sandbox_image(registry):
+def get_sandbox_image(registry) -> str:
     # Try to track upstream version if possible, see for example:
     # https://github.com/kubernetes/kubernetes/blob/v1.28.1/build/dependencies.yaml#L175
-    return "{}/pause:3.9".format(registry)
+    return f"{registry}/pause:3.9"
 
 
 @status.on_error(BlockedStatus("Failed to install Kubernetes snaps"))
@@ -533,18 +534,16 @@ def set_default_cni_conf_file(cni_conf_file):
     The created 01-default.conflist file is a symlink to whichever CNI config
     is actually going to be used.
     """
-    cni_conf_dir = "/etc/cni/net.d"
-    os.makedirs(cni_conf_dir, exist_ok=True)
-
+    cni_conf_dir = Path("/etc/cni/net.d")
+    cni_conf_dir.mkdir(mode=0o700, parents=True, exists_ok=True)
     # Clean up current default
-    for filename in os.listdir(cni_conf_dir):
-        if filename.startswith("01-default."):
-            os.remove(cni_conf_dir + "/" + filename)
-
+    for filename in cni_conf_dir.iterdir():
+        if filename.stem == "01-default":
+            filename.unlink()
     # Set new default if specified
     if cni_conf_file:
-        dest = cni_conf_dir + "/01-default." + cni_conf_file.split(".")[-1]
-        os.symlink(cni_conf_file, dest)
+        dest = cni_conf_dir / "01-default." + cni_conf_file.split(".")[-1]
+        dest.symlink_to(cni_conf_file)
 
 
 def write_certificates(ca, client_cert, client_key, server_cert, server_key):
@@ -575,8 +574,7 @@ def write_etcd_client_credentials(ca, cert, key):
         f.write(key)
 
 
-def write_service_account_key(key):
-    dest = "/root/cdk/serviceaccount.key"
-    os.makedirs("/root/cdk", exist_ok=True)
-    with open(dest, "w") as f:
-        f.write(key)
+def write_service_account_key(key: str) -> None:
+    dest = service_account_key_path
+    dest.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    dest.write_text(key)

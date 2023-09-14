@@ -542,7 +542,8 @@ def set_default_cni_conf_file(cni_conf_file):
             filename.unlink()
     # Set new default if specified
     if cni_conf_file:
-        dest = cni_conf_dir / "01-default." + cni_conf_file.split(".")[-1]
+        ext = cni_conf_file.split(".")[-1]
+        dest = cni_conf_dir / f"01-default.{ext}"
         dest.symlink_to(cni_conf_file)
 
 

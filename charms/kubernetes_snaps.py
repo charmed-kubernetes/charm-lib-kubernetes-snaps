@@ -535,7 +535,7 @@ def set_default_cni_conf_file(cni_conf_file):
     is actually going to be used.
     """
     cni_conf_dir = Path("/etc/cni/net.d")
-    cni_conf_dir.mkdir(mode=0o700, parents=True, exists_ok=True)
+    cni_conf_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     # Clean up current default
     for filename in cni_conf_dir.iterdir():
         if filename.stem == "01-default":

@@ -368,7 +368,7 @@ def configure_kubelet(
         },
         # NB: authz webhook config tells the kubelet to ask the api server
         # if a request is authorized; it is not related to the authn
-        # webhook config of the k8s master services.
+        # webhook config of the k8s control-plane services.
         "authorization": {"mode": "Webhook"},
         "clusterDomain": dns_domain,
         "failSwapOn": False,

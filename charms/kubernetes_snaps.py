@@ -5,7 +5,7 @@ import os
 from base64 import b64encode
 from pathlib import Path
 from socket import gethostname, getfqdn
-from typing import Protocol
+from typing import Protocol, Optional
 
 import charms.contextual_status as status
 import yaml
@@ -16,8 +16,9 @@ from subprocess import call, CalledProcessError, check_call, check_output, DEVNU
 class ExternalCloud(Protocol):
     """Definition of what attributes are available from external-cloud."""
 
-    name: str
     has_xcp: bool
+    name: Optional[str]
+    provider_id: Optional[str]
 
 
 log = logging.getLogger(__name__)
@@ -149,17 +150,6 @@ def configure_apiserver(
     api_cloud_config_path = cloud_config_path("kube-apiserver")
     if has_external_cloud_provider():
         api_opts["cloud-provider"] = "external"
-    elif is_state("endpoint.aws.ready"):
-        if kube_version < (1, 27, 0):
-            api_opts["cloud-provider"] = "aws"
-        else:
-            hookenv.log(
-                "AWS cloud-provider is no longer available in-tree. "
-                "the out-of-tree provider is necessary",
-                level="WARNING",
-            )
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationAWS=false")
     elif is_state("endpoint.gcp.ready"):
         api_opts["cloud-provider"] = "gce"
         api_opts["cloud-config"] = str(api_cloud_config_path)
@@ -231,38 +221,18 @@ def configure_controller_manager(
         controller_opts["cluster-cidr"] = cluster_cidr
     feature_gates = ["RotateKubeletServerCertificate=true"]
 
+    if has_external_cloud_provider():
+        controller_opts["cloud-provider"] = "external"
+
+
     # TODO: cloud config
     """
     cm_cloud_config_path = cloud_config_path("kube-controller-manager")
-    if has_external_cloud_provider():
-        controller_opts["cloud-provider"] = "external"
-    elif is_state("endpoint.aws.ready"):
-        if kube_version < (1, 27, 0):
-            controller_opts["cloud-provider"] = "aws"
-        else:
-            hookenv.log(
-                "AWS cloud-provider is no longer available in-tree. "
-                "the out-of-tree provider is necessary",
-                level="WARNING",
-            )
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationAWS=false")
     elif is_state("endpoint.gcp.ready"):
         controller_opts["cloud-provider"] = "gce"
         controller_opts["cloud-config"] = str(cm_cloud_config_path)
         if kube_version < (1, 25, 0):
             feature_gates.append("CSIMigrationGCE=false")
-    elif is_state("endpoint.vsphere.ready"):
-        if (1, 12) <= kube_version:
-            controller_opts["cloud-provider"] = "vsphere"
-            controller_opts["cloud-config"] = str(cm_cloud_config_path)
-        if kube_version < (1, 26, 0):
-            feature_gates.append("CSIMigrationvSphere=false")
-    elif is_state("endpoint.azure.ready"):
-        controller_opts["cloud-provider"] = "azure"
-        controller_opts["cloud-config"] = str(cm_cloud_config_path)
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationAzureDisk=false")
     """
 
     controller_opts["feature-gates"] = ",".join(feature_gates)
@@ -417,46 +387,15 @@ def configure_kubelet(
     kubelet_opts["config"] = "/root/cdk/kubelet/config.yaml"
     if external_cloud_provider.has_xcp:
         kubelet_opts["cloud-provider"] = "external"
-    if external_cloud_provider.name in ["gce"]:
-        kubelet_opts["cloud-provider"] = external_cloud_provider.name
 
-    # TODO: cloud config
-    """
-    kubelet_cloud_config_path = cloud_config_path("kubelet")
-    if is_state("endpoint.aws.ready"):
-        if kube_version < (1, 27, 0):
-            kubelet_opts["cloud-provider"] = "aws"
-        else:
-            hookenv.log(
-                "AWS cloud-provider is no longer available in-tree. "
-                "the out-of-tree provider is necessary",
-                level="WARNING",
-            )
-        if kube_version < (1, 25, 0):
-            feature_gates["CSIMigrationAWS"] = False
-    elif is_state("endpoint.gcp.ready"):
-        kubelet_opts["cloud-provider"] = "gce"
-        kubelet_opts["cloud-config"] = str(kubelet_cloud_config_path)
-        if kube_version < (1, 25, 0):
-            feature_gates["CSIMigrationGCE"] = False
-    elif is_state("endpoint.openstack.ready"):
-        kubelet_opts["cloud-provider"] = "external"
-    elif is_state("endpoint.vsphere.joined"):
-        # vsphere just needs to be joined on the worker (vs 'ready')
-        kubelet_opts["cloud-provider"] = "vsphere"
-        # NB: vsphere maps node product-id to its uuid (no config file needed).
-        uuid = _get_vmware_uuid()
-        kubelet_opts["provider-id"] = "vsphere://{}".format(uuid)
-        if kube_version < (1, 26, 0):
-            feature_gates["CSIMigrationvSphere"] = False
-    elif is_state("endpoint.azure.ready"):
-        azure = endpoint_from_flag("endpoint.azure.ready")
-        kubelet_opts["cloud-provider"] = "azure"
-        kubelet_opts["cloud-config"] = str(kubelet_cloud_config_path)
-        kubelet_opts["provider-id"] = azure.vm_id
-        if kube_version < (1, 25, 0):
-            feature_gates["CSIMigrationAzureDisk"] = False
-    """
+    if external_cloud_provider.name == "gce":
+        # TODO: We need a charm for external-cloud-provider for GCP
+        # based on https://github.com/kubernetes/cloud-provider-gcp/
+        log.warning(
+            "GCP cloud-provider is currently available in-tree "
+            "but can be avoided configuring here if we use the "
+            "external tree provider"
+        )
 
     # Add kubelet-extra-config. This needs to happen last so that it
     # overrides any config provided by the charm.
@@ -507,22 +446,6 @@ def configure_scheduler(extra_args_config, kubeconfig):
     scheduler_opts["config"] = kube_scheduler_config_path
 
     feature_gates = []
-
-    # TODO: cloud config
-    """
-    if is_state("endpoint.aws.ready"):
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationAWS=false")
-    elif is_state("endpoint.gcp.ready"):
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationGCE=false")
-    elif is_state("endpoint.azure.ready"):
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationAzureDisk=false")
-    elif is_state("endpoint.vsphere.ready"):
-        if (1, 12) <= kube_version < (1, 26, 0):
-            feature_gates.append("CSIMigrationvSphere=false")
-    """
 
     scheduler_opts["feature-gates"] = ",".join(feature_gates)
     scheduler_config = {

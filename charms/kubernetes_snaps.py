@@ -4,12 +4,21 @@ import logging
 import os
 from base64 import b64encode
 from pathlib import Path
-from socket import gethostname
+from socket import gethostname, getfqdn
+from typing import Protocol
 
 import charms.contextual_status as status
 import yaml
 from ops import BlockedStatus, MaintenanceStatus
 from subprocess import call, CalledProcessError, check_call, check_output, DEVNULL
+
+
+class ExternalCloud(Protocol):
+    """Definition of what attributes are available from external-cloud."""
+
+    name: str
+    has_xcp: bool
+
 
 log = logging.getLogger(__name__)
 service_account_key_path = Path("/root/cdk/serviceaccount.key")
@@ -280,14 +289,21 @@ def configure_kernel_parameters(params):
     check_call(["sysctl", "-p", dest])
 
 
-def configure_kube_proxy(cluster_cidr, extra_args_config, extra_config, kubeconfig):
+def configure_kube_proxy(
+    cluster_cidr,
+    extra_args_config,
+    extra_config,
+    kubeconfig,
+    external_cloud_provider: ExternalCloud,
+):
+    fqdn = external_cloud_provider.name == "aws"
     kube_proxy_config = {
         "kind": "KubeProxyConfiguration",
         "apiVersion": "kubeproxy.config.k8s.io/v1alpha1",
         "clientConnection": {
             "kubeconfig": kubeconfig,
         },
-        "hostnameOverride": get_node_name(),
+        "hostnameOverride": get_node_name(fqdn),
     }
     if cluster_cidr:
         kube_proxy_config["clusterCIDR"] = cluster_cidr
@@ -339,7 +355,7 @@ def configure_kubelet(
     dns_ip,
     extra_args_config,
     extra_config,
-    has_xcp,
+    external_cloud_provider: ExternalCloud,
     kubeconfig,
     node_ip,
     registry,
@@ -356,7 +372,7 @@ def configure_kubelet(
     @param registry: pre-1.27, used in the image for `pod-infra-container-image`
     @param taints: See `registerWithTaints`
            Array of taints to add to a node object when registering this node
-    @param has_xcp: True if related to an external cloud provider
+    @param external_cloud_provider: relation to an external cloud provider
     """
     kubelet_config = {
         "apiVersion": "kubelet.config.k8s.io/v1beta1",
@@ -390,16 +406,19 @@ def configure_kubelet(
     resolv_path = os.path.realpath("/etc/resolv.conf")
     if resolv_path == "/run/systemd/resolve/stub-resolv.conf":
         kubelet_config["resolvConf"] = "/run/systemd/resolve/resolv.conf"
+    fqdn = external_cloud_provider.name == "aws"
 
     kubelet_opts = {}
     kubelet_opts["kubeconfig"] = kubeconfig
     kubelet_opts["v"] = "0"
     kubelet_opts["node-ip"] = node_ip
     kubelet_opts["container-runtime-endpoint"] = container_runtime_endpoint
-    kubelet_opts["hostname-override"] = get_node_name()
+    kubelet_opts["hostname-override"] = get_node_name(fqdn)
     kubelet_opts["config"] = "/root/cdk/kubelet/config.yaml"
-    if has_xcp:
+    if external_cloud_provider.has_xcp:
         kubelet_opts["cloud-provider"] = "external"
+    if external_cloud_provider.name in ["gce"]:
+        kubelet_opts["cloud-provider"] = external_cloud_provider.name
 
     # TODO: cloud config
     """
@@ -627,7 +646,9 @@ def get_kubernetes_service_addresses(cidrs):
     return [next(network.hosts()).exploded for network in networks]
 
 
-def get_node_name():
+def get_node_name(fqdn=False):
+    if fqdn:
+        return getfqdn().lower()
     return gethostname().lower()
 
 

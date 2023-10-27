@@ -18,7 +18,6 @@ class ExternalCloud(Protocol):
 
     has_xcp: bool
     name: Optional[str]
-    provider_id: Optional[str]
 
 
 log = logging.getLogger(__name__)
@@ -46,6 +45,7 @@ def configure_apiserver(
     extra_args_config,
     privileged,
     service_cidr,
+    external_cloud_provider: ExternalCloud,
 ):
     api_opts = {}
     feature_gates = []
@@ -145,11 +145,21 @@ def configure_apiserver(
     api_opts["enable-aggregator-routing"] = "true"
     api_opts["client-ca-file"] = "/root/cdk/ca.crt"
 
+    if external_cloud_provider.has_xcp:
+        api_opts["cloud-provider"] = "external"
+
+    if external_cloud_provider.name == "gce":
+        # TODO: We need a charm for external-cloud-provider for GCP
+        # based on https://github.com/kubernetes/cloud-provider-gcp/
+        log.warning(
+            "GCP cloud-provider is currently available in-tree "
+            "but can be avoided configuring here if we use the "
+            "external tree provider"
+        )
+
     # TODO: cloud provider config
     """
     api_cloud_config_path = cloud_config_path("kube-apiserver")
-    if has_external_cloud_provider():
-        api_opts["cloud-provider"] = "external"
     elif is_state("endpoint.gcp.ready"):
         api_opts["cloud-provider"] = "gce"
         api_opts["cloud-config"] = str(api_cloud_config_path)
@@ -199,7 +209,12 @@ def configure_apiserver(
 
 
 def configure_controller_manager(
-    cluster_cidr, cluster_name, extra_args_config, kubeconfig, service_cidr
+    cluster_cidr,
+    cluster_name,
+    extra_args_config,
+    kubeconfig,
+    service_cidr,
+    external_cloud_provider: ExternalCloud,
 ):
     controller_opts = {}
 
@@ -221,9 +236,8 @@ def configure_controller_manager(
         controller_opts["cluster-cidr"] = cluster_cidr
     feature_gates = ["RotateKubeletServerCertificate=true"]
 
-    if has_external_cloud_provider():
+    if external_cloud_provider.has_xcp:
         controller_opts["cloud-provider"] = "external"
-
 
     # TODO: cloud config
     """
@@ -280,26 +294,6 @@ def configure_kube_proxy(
 
     if host_is_container():
         kube_proxy_config["conntrack"] = {"maxPerCore": 0}
-
-    # TODO: cloud config
-    """
-    feature_gates = {}
-    kube_version = get_version("kube-proxy")
-    if is_state("endpoint.aws.ready"):
-        if kube_version < (1, 25, 0):
-            feature_gates["CSIMigrationAWS"] = False
-    elif is_state("endpoint.gcp.ready"):
-        if kube_version < (1, 25, 0):
-            feature_gates["CSIMigrationGCE"] = False
-    elif is_state("endpoint.azure.ready"):
-        if kube_version < (1, 25, 0):
-            feature_gates["CSIMigrationAzureDisk"] = False
-    elif is_state("endpoint.vsphere.ready"):
-        if kube_version < (1, 26, 0):
-            feature_gates["CSIMigrationvSphere"] = False
-
-    kube_proxy_config["featureGates"] = feature_gates
-    """
 
     kube_proxy_opts = {"config": "/root/cdk/kubeproxy/config.yaml", "v": "0"}
 

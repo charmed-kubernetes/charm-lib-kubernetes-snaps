@@ -149,22 +149,14 @@ def configure_apiserver(
     if external_cloud_provider.has_xcp:
         api_opts["cloud-provider"] = "external"
 
-    # TODO: Check if cloud-config is still required
-    # api_cloud_config_path = cloud_config_path("kube-apiserver")
     if external_cloud_provider.name == "gce":
         # TODO: We need a charm for external-cloud-provider for GCP
         # based on https://github.com/kubernetes/cloud-provider-gcp/
-        api_opts["cloud-provider"] = "gce"
-        # api_opts["cloud-config"] = str(api_cloud_config_path)
         log.warning(
             "GCP cloud-provider is currently available in-tree "
             "but can be avoided configuring here if we use the "
             "external tree provider"
         )
-
-    elif external_cloud_provider.name == "azure":
-        api_opts["cloud-provider"] = "azure"
-        # api_opts["cloud-config"] = str(api_cloud_config_path)
 
     api_opts["feature-gates"] = ",".join(feature_gates)
 
@@ -199,10 +191,10 @@ def configure_apiserver(
 def configure_controller_manager(
     cluster_cidr,
     cluster_name,
-    external_cloud_provider: ExternalCloud,
     extra_args_config,
     kubeconfig,
     service_cidr,
+    external_cloud_provider: ExternalCloud,
 ):
     controller_opts = {}
 
@@ -235,9 +227,6 @@ def configure_controller_manager(
             "but can be avoided configuring here if we use the "
             "external tree provider"
         )
-        controller_opts["cloud-provider"] = "gce"
-        # TODO: Check if cloud-config is required
-        # controller_opts["cloud-config"] = str(cm_cloud_config_path)
 
     controller_opts["feature-gates"] = ",".join(feature_gates)
 

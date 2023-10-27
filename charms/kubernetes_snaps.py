@@ -4,13 +4,14 @@ import logging
 import os
 from base64 import b64encode
 from pathlib import Path
-from socket import gethostname, getfqdn
-from typing import Protocol, Optional
+from socket import getfqdn, gethostname
+from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output
+from typing import Optional, Protocol
 
-import charms.contextual_status as status
 import yaml
 from ops import BlockedStatus, MaintenanceStatus
-from subprocess import call, CalledProcessError, check_call, check_output, DEVNULL
+
+import charms.contextual_status as status
 
 
 class ExternalCloud(Protocol):
@@ -148,35 +149,22 @@ def configure_apiserver(
     if external_cloud_provider.has_xcp:
         api_opts["cloud-provider"] = "external"
 
+    # TODO: Check if cloud-config is still required
+    # api_cloud_config_path = cloud_config_path("kube-apiserver")
     if external_cloud_provider.name == "gce":
         # TODO: We need a charm for external-cloud-provider for GCP
         # based on https://github.com/kubernetes/cloud-provider-gcp/
+        api_opts["cloud-provider"] = "gce"
+        # api_opts["cloud-config"] = str(api_cloud_config_path)
         log.warning(
             "GCP cloud-provider is currently available in-tree "
             "but can be avoided configuring here if we use the "
             "external tree provider"
         )
 
-    # TODO: cloud provider config
-    """
-    api_cloud_config_path = cloud_config_path("kube-apiserver")
-    elif is_state("endpoint.gcp.ready"):
-        api_opts["cloud-provider"] = "gce"
-        api_opts["cloud-config"] = str(api_cloud_config_path)
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationGCE=false")
-    elif is_state("endpoint.vsphere.ready"):
-        if (1, 12) <= kube_version:
-            api_opts["cloud-provider"] = "vsphere"
-            api_opts["cloud-config"] = str(api_cloud_config_path)
-        if kube_version < (1, 26, 0):
-            feature_gates.append("CSIMigrationvSphere=false")
-    elif is_state("endpoint.azure.ready"):
+    elif external_cloud_provider.name == "azure":
         api_opts["cloud-provider"] = "azure"
-        api_opts["cloud-config"] = str(api_cloud_config_path)
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationAzureDisk=false")
-    """
+        # api_opts["cloud-config"] = str(api_cloud_config_path)
 
     api_opts["feature-gates"] = ",".join(feature_gates)
 
@@ -211,10 +199,10 @@ def configure_apiserver(
 def configure_controller_manager(
     cluster_cidr,
     cluster_name,
+    external_cloud_provider: ExternalCloud,
     extra_args_config,
     kubeconfig,
     service_cidr,
-    external_cloud_provider: ExternalCloud,
 ):
     controller_opts = {}
 
@@ -239,15 +227,17 @@ def configure_controller_manager(
     if external_cloud_provider.has_xcp:
         controller_opts["cloud-provider"] = "external"
 
-    # TODO: cloud config
-    """
-    cm_cloud_config_path = cloud_config_path("kube-controller-manager")
-    elif is_state("endpoint.gcp.ready"):
+    if external_cloud_provider.name == "gce":
+        # TODO: We need a charm for external-cloud-provider for GCP
+        # based on https://github.com/kubernetes/cloud-provider-gcp/
+        log.warning(
+            "GCP cloud-provider is currently available in-tree "
+            "but can be avoided configuring here if we use the "
+            "external tree provider"
+        )
         controller_opts["cloud-provider"] = "gce"
-        controller_opts["cloud-config"] = str(cm_cloud_config_path)
-        if kube_version < (1, 25, 0):
-            feature_gates.append("CSIMigrationGCE=false")
-    """
+        # TODO: Check if cloud-config is required
+        # controller_opts["cloud-config"] = str(cm_cloud_config_path)
 
     controller_opts["feature-gates"] = ",".join(feature_gates)
 

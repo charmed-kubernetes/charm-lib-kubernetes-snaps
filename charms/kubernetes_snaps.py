@@ -586,8 +586,7 @@ def get_snap_version(name: str) -> str:
     match = re.search(r"\b\d+(?:\.\d+)*\b", output)
 
     if match:
-        version = match.group()
-        return version
+        return match.group()
     else:
         log.info(f"Package '{name}' not found or no version available.")
     return None

@@ -8,6 +8,7 @@ from pathlib import Path
 from socket import getfqdn, gethostname
 from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output
 from typing import Optional, Protocol
+from ops import ActionEvent
 
 import yaml
 from ops import BlockedStatus, MaintenanceStatus
@@ -741,6 +742,27 @@ def set_default_cni_conf_file(cni_conf_file):
         ext = cni_conf_file.split(".")[-1]
         dest = cni_conf_dir / f"01-default.{ext}"
         dest.symlink_to(cni_conf_file)
+
+
+def upgrade_snaps(channel: str, event: ActionEvent, control_plane: bool = False):
+    log.info(f"Starting the upgrade of Kubernetes snaps to '{channel}' channel.")
+    try:
+        install(channel=channel, control_plane=control_plane, upgrade=True)
+    except (CalledProcessError, Exception) as e:
+        if isinstance(e, CalledProcessError):
+            error_message = f"Upgrade failed with a process error. stdout: {e.stdout}, stderr: {e.stderr}"
+        else:
+            error_message = f"An unexpected error occurred during the upgrade: {e}"
+
+        log.exception(error_message)
+        status.add("Snap upgrade failed. Check action results for more information.")
+        event.fail(error_message)
+    else:
+        result_message = (
+            f"Successfully upgraded Kubernetes snaps to the '{channel}' channel."
+        )
+        log.info(result_message)
+        event.set_results({"result": result_message})
 
 
 def v1_taint_from_string(taint: str):

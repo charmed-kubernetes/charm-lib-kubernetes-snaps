@@ -2,6 +2,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 from base64 import b64encode
 from pathlib import Path
 from socket import getfqdn, gethostname
@@ -10,6 +11,7 @@ from typing import Optional, Protocol
 
 import yaml
 from ops import BlockedStatus, MaintenanceStatus
+from packaging import version
 
 import charms.contextual_status as status
 
@@ -32,6 +34,15 @@ tls_ciphers_intermediate = [
     "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
     "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
     "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
+]
+
+
+BASIC_SNAPS = ["kubectl", "kubelet", "kube-proxy"]
+CONTROL_PLANE_SNAPS = [
+    "kube-apiserver",
+    "kube-controller-manager",
+    "kube-scheduler",
+    "cdk-addons",
 ]
 
 
@@ -559,32 +570,68 @@ def get_sandbox_image(registry) -> str:
     return f"{registry}/pause:3.9"
 
 
+def get_snap_version(name: str) -> str:
+    """
+    Get the version of an installed snap package.
+
+    Args:
+    name (str): The name of the snap package.
+
+    Returns:
+    str or None: The version of the snap package if available, otherwise None.
+    """
+    cmd = ["snap", "list", name]
+    result = check_output(cmd)
+    output = result.decode().strip()
+    match = re.search(r"\b\d+(?:\.\d+)*\b", output)
+
+    if match:
+        version = match.group()
+        return version
+    else:
+        log.info(f"Package '{name}' not found or no version available.")
+    return None
+
+
 def host_is_container():
     return call(["systemd-detect-virt", "--container"]) == 0
 
 
 @status.on_error(BlockedStatus("Failed to install Kubernetes snaps"))
-def install(channel, control_plane=False):
+def install(channel, control_plane=False, upgrade=False):
     """Install or refresh Kubernetes snaps. This includes the basic snaps to
-    talk to Kubernetes and run a Kubernetes nodes.
+    talk to Kubernetes and run a Kubernetes node.
 
-    If control_plane=True, then also install the Kubernetes control plane snaps.
+    Args:
+        - channel (str): The snap channel to install from.
+        - control_plane (bool, optional): If True, installs the Kubernetes control
+        plane snaps. Defaults to False.
+        - upgrade (bool, optional): If True, allows upgrading of snaps. Defaults to
+        False.
     """
+
+    if any(is_upgrade(snap, channel) for snap in BASIC_SNAPS) and not upgrade:
+        status.add(
+            BlockedStatus("Snap channel version has changed. An upgrade is required.")
+        )
+        return
 
     # Refresh with ignore_running=True ONLY for non-daemon apps (i.e. kubectl)
     # https://bugs.launchpad.net/bugs/1987331
-    install_snap("kubectl", channel=channel, classic=True, ignore_running=True)
-    install_snap("kubelet", channel=channel, classic=True)
-    install_snap("kube-proxy", channel=channel, classic=True)
+    for snap in BASIC_SNAPS:
+        install_snap(
+            snap,
+            channel=channel,
+            classic=True,
+            ignore_running=snap == "kubectl",
+        )
 
     if control_plane:
-        install_snap("kube-apiserver", channel=channel)
-        install_snap("kube-controller-manager", channel=channel)
-        install_snap("kube-scheduler", channel=channel)
-        install_snap("cdk-addons", channel=channel)
+        for snap in CONTROL_PLANE_SNAPS:
+            install_snap(snap, channel=channel)
 
 
-def install_snap(name, channel, classic=False, ignore_running=False):
+def install_snap(name: str, channel: str, classic=False, ignore_running=False):
     """Install or refresh a snap"""
     status.add(MaintenanceStatus(f"Installing {name} snap"))
 
@@ -605,6 +652,32 @@ def is_snap_installed(name):
     """Return True if the given snap is installed, otherwise False."""
     cmd = ["snap", "list", name]
     return call(cmd, stdout=DEVNULL, stderr=DEVNULL) == 0
+
+
+def is_upgrade(snap_name: str, target_channel: str):
+    """
+    Check if the installed version is less than the target channel version.
+
+    Args:
+    snap_name (str): Then name of the snap package.
+    target_channel (str): The target channel to compare against.
+
+    Returns:
+    bool: True if an upgrade is needed, False otherwise.
+    """
+    is_refresh = is_snap_installed(snap_name)
+
+    if is_refresh:
+        installed_version = get_snap_version(snap_name)
+        channel_version, *_ = target_channel.split("/")
+
+        installed_ver = version.parse(installed_version)
+        target_ver = version.parse(channel_version)
+
+        return (installed_ver.major, installed_ver.minor) < (
+            target_ver.major,
+            target_ver.minor,
+        )
 
 
 def merge_extra_config(config, extra_config):

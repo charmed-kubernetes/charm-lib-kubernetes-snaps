@@ -666,8 +666,7 @@ def is_upgrade(snap_name: str, target_channel: str):
     """
     is_refresh = is_snap_installed(snap_name)
 
-    if is_refresh:
-        installed_version = get_snap_version(snap_name)
+    if is_refresh and (installed_version := get_snap_version(snap_name)):
         channel_version, *_ = target_channel.split("/")
 
         installed_ver = version.parse(installed_version)

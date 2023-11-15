@@ -417,6 +417,8 @@ def configure_scheduler(extra_args_config, kubeconfig):
 
     scheduler_opts["v"] = "2"
     scheduler_opts["config"] = kube_scheduler_config_path
+    scheduler_opts["authorization-kubeconfig"] = kubeconfig
+    scheduler_opts["authentication-kubeconfig"] = kubeconfig
 
     feature_gates = []
 

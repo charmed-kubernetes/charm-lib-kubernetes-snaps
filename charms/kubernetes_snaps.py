@@ -671,12 +671,10 @@ def is_channel_available(snap_name: str, target_channel: str) -> bool:
     """
     cmd = ["snap", "info", snap_name]
     result = check_output(cmd)
-    output = result.decode().strip()
-    for line in output.splitlines():
-        if target_channel in line:
-            match = re.search(r"\s+\(\d+\)\s+", line)
-            return bool(match)
-    return False
+    output = yaml.safe_load(result.decode())
+    channels = output.get("channels") or ()
+    target = channels.get(target_channel) or None
+    return target and target != "--"
 
 
 def is_snap_installed(snap_name) -> bool:

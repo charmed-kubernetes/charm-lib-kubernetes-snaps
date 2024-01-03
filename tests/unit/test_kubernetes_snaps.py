@@ -42,7 +42,7 @@ def test_is_snap_available(subprocess_check_output):
 name:      my-snap
 publisher: Canonical✓
 channels:
-  latest/stable:    -
+  latest/stable:    --
   1.29/stable:   1.29.0  2024-01-03 (22606) 12MB -
 """
     subprocess_check_output.return_value = snap_info.encode()

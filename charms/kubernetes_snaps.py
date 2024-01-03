@@ -671,7 +671,7 @@ def is_channel_available(snap_name: str, target_channel: str) -> bool:
     """
     cmd = ["snap", "info", snap_name]
     result = check_output(cmd)
-    output = yaml.safe_load(result.decode())
+    output = yaml.safe_load(result)
     channels = output.get("channels") or ()
     target = channels.get(target_channel) or None
     return target and target != "--"

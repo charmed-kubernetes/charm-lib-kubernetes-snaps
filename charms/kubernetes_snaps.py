@@ -663,7 +663,7 @@ def is_channel_available(snap_name: str, target_channel: str) -> bool:
     Check if the target channel exists for a given snap.
 
     Args:
-    snap_name (str): Then name of the snap package.
+    snap_name (str): The name of the snap package.
     target_channel (str): The target channel to find.
 
     Returns:
@@ -672,8 +672,8 @@ def is_channel_available(snap_name: str, target_channel: str) -> bool:
     cmd = ["snap", "info", snap_name]
     result = check_output(cmd)
     output = yaml.safe_load(result)
-    channels = output.get("channels") or {}
-    target = channels.get(target_channel) or None
+    channels = output.get("channels", {})
+    target = channels.get(target_channel, None)
     return target and target != "--"
 
 

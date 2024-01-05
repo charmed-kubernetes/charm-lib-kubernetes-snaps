@@ -611,11 +611,19 @@ def install(channel, control_plane=False, upgrade=False):
         - upgrade (bool, optional): If True, allows upgrading of snaps. Defaults to
         False.
     """
+    which_snaps = BASIC_SNAPS + CONTROL_PLANE_SNAPS if control_plane else BASIC_SNAPS
 
-    if any(is_upgrade(snap, channel) for snap in BASIC_SNAPS) and not upgrade:
-        status.add(
-            BlockedStatus("Snap channel version has changed. An upgrade is required.")
+    if missing := {s for s in which_snaps if not is_channel_available(s, channel)}:
+        log.warning(
+            "The following snaps do not have a revision on channel=%s: %s",
+            channel,
+            ",".join(sorted(missing)),
         )
+        status.add(BlockedStatus(f"Not all snaps are available on channel={channel}"))
+        return
+
+    if any(is_channel_swap(snap, channel) for snap in which_snaps) and not upgrade:
+        status.add(BlockedStatus("Needs manual upgrade, run the upgrade action."))
         return
 
     # Refresh with ignore_running=True ONLY for non-daemon apps (i.e. kubectl)
@@ -650,15 +658,34 @@ def install_snap(name: str, channel: str, classic=False, ignore_running=False):
     check_call(cmd)
 
 
-def is_snap_installed(name):
+def is_channel_available(snap_name: str, target_channel: str) -> bool:
+    """
+    Check if the target channel exists for a given snap.
+
+    Args:
+    snap_name (str): The name of the snap package.
+    target_channel (str): The target channel to find.
+
+    Returns:
+    bool: True if snap channel contains a revision, False otherwise.
+    """
+    cmd = ["snap", "info", snap_name]
+    result = check_output(cmd)
+    output = yaml.safe_load(result)
+    channels = output.get("channels", {})
+    target = channels.get(target_channel, None)
+    return target and target != "--"
+
+
+def is_snap_installed(snap_name) -> bool:
     """Return True if the given snap is installed, otherwise False."""
-    cmd = ["snap", "list", name]
+    cmd = ["snap", "list", snap_name]
     return call(cmd, stdout=DEVNULL, stderr=DEVNULL) == 0
 
 
-def is_upgrade(snap_name: str, target_channel: str):
+def is_channel_swap(snap_name: str, target_channel: str) -> bool:
     """
-    Check if the installed version is less than the target channel version.
+    Check if the installed version is not than the target channel version.
 
     Args:
     snap_name (str): Then name of the snap package.
@@ -671,14 +698,13 @@ def is_upgrade(snap_name: str, target_channel: str):
 
     if is_refresh and (installed_version := get_snap_version(snap_name)):
         channel_version, *_ = target_channel.split("/")
+        current = version.parse(installed_version)
+        target = version.parse(channel_version)
+        return (current.major, current.minor) != (target.major, target.minor)
+    return False
 
-        installed_ver = version.parse(installed_version)
-        target_ver = version.parse(channel_version)
 
-        return (installed_ver.major, installed_ver.minor) < (
-            target_ver.major,
-            target_ver.minor,
-        )
+is_upgrade = is_channel_swap
 
 
 def merge_extra_config(config, extra_config):

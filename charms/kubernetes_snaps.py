@@ -271,7 +271,7 @@ def configure_kube_proxy(
     kubeconfig,
     external_cloud_provider: ExternalCloud,
 ):
-    fqdn = external_cloud_provider.name == "aws"
+    fqdn = external_cloud_provider.name == "aws" and external_cloud_provider.has_xcp
     kube_proxy_config = {
         "kind": "KubeProxyConfiguration",
         "apiVersion": "kubeproxy.config.k8s.io/v1alpha1",
@@ -361,7 +361,7 @@ def configure_kubelet(
     resolv_path = os.path.realpath("/etc/resolv.conf")
     if resolv_path == "/run/systemd/resolve/stub-resolv.conf":
         kubelet_config["resolvConf"] = "/run/systemd/resolve/resolv.conf"
-    fqdn = external_cloud_provider.name == "aws"
+    fqdn = external_cloud_provider.name == "aws" and external_cloud_provider.has_xcp
 
     kubelet_opts = {}
     kubelet_opts["kubeconfig"] = kubeconfig

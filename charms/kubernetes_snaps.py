@@ -81,9 +81,9 @@ def configure_apiserver(
     api_opts["service-account-issuer"] = "https://kubernetes.default.svc"
     api_opts["service-account-signing-key-file"] = str(service_account_key_path)
     api_opts["service-account-key-file"] = str(service_account_key_path)
-    api_opts[
-        "kubelet-preferred-address-types"
-    ] = "InternalIP,Hostname,InternalDNS,ExternalDNS,ExternalIP"
+    api_opts["kubelet-preferred-address-types"] = (
+        "InternalIP,Hostname,InternalDNS,ExternalDNS,ExternalIP"
+    )
     # TODO: encryption at rest
     # api_opts["encryption-provider-config"] = str(encryption_config_path())
 

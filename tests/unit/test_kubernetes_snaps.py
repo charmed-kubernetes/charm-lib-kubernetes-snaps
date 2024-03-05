@@ -63,14 +63,11 @@ my-snap  1.29.0        22606  1.29/stable    canonical✓  -
     assert kubernetes_snaps.is_channel_swap("my-snap", "1.30/stable")
 
 
-@pytest.fixture(params=[None, "external", "internal"])
+@pytest.fixture(params=[None, "external"])
 def external_cloud(request):
     cloud = mock.MagicMock()
     cloud.has_xcp = request.param == "external"
     cloud.in_tree.return_value = {}
-    if request.param == "internal":
-        cloud.in_tree.return_value["cloud-provider"] = "cloud"
-        cloud.in_tree.return_value["cloud-config"] = "cloud-config"
     yield cloud
 
 
@@ -108,7 +105,4 @@ def test_configure_kubelet(
     }
     if external_cloud.has_xcp:
         expected_args["cloud-provider"] = "external"
-        external_cloud.in_tree.assert_not_called()
-    else:
-        external_cloud.in_tree.assert_called_once_with("kubelet")
     assert expected_args == args

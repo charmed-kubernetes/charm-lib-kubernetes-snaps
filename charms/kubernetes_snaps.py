@@ -7,7 +7,7 @@ from base64 import b64encode
 from pathlib import Path
 from socket import getfqdn, gethostname
 from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output
-from typing import Mapping, Optional, Protocol
+from typing import Optional, Protocol
 from ops import ActionEvent
 
 import yaml
@@ -22,9 +22,6 @@ class ExternalCloud(Protocol):
 
     has_xcp: bool
     name: Optional[str]
-
-    def in_tree(service: str) -> Mapping[str, str]:
-        ...
 
 
 log = logging.getLogger(__name__)
@@ -63,7 +60,7 @@ def configure_apiserver(
     service_cidr,
     external_cloud_provider: ExternalCloud,
 ):
-    api_opts: Mapping[str, str] = {}
+    api_opts = {}
     feature_gates = []
 
     api_opts["allow-privileged"] = "true" if privileged else "false"
@@ -164,9 +161,6 @@ def configure_apiserver(
     if external_cloud_provider.has_xcp:
         log.info("KubeApi: Uses an External Cloud Provider")
         api_opts["cloud-provider"] = "external"
-    elif args := external_cloud_provider.in_tree("kube-apiserver"):
-        log.info("KubeApi: Uses an In Tree Provider")
-        api_opts.update(**args)
     else:
         log.info("KubeApi: No Cloud Features")
 
@@ -231,9 +225,6 @@ def configure_controller_manager(
     if external_cloud_provider.has_xcp:
         log.info("KubeController: Uses an External Cloud Provider")
         controller_opts["cloud-provider"] = "external"
-    elif in_tree := external_cloud_provider.in_tree("kube-controller-manager"):
-        log.info("KubeController: Uses an In Tree Provider")
-        controller_opts.update(**in_tree)
     else:
         log.info("KubeController: No Cloud Features")
 
@@ -370,9 +361,6 @@ def configure_kubelet(
     if external_cloud_provider.has_xcp:
         log.info("Kubelet: Uses an External Cloud Provider")
         kubelet_opts["cloud-provider"] = "external"
-    elif in_tree := external_cloud_provider.in_tree("kubelet"):
-        log.info("Kubelet: Uses an In Tree Provider")
-        kubelet_opts.update(**in_tree)
     else:
         log.info("Kubelet: No Cloud Features")
 

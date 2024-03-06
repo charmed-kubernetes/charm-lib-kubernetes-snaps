@@ -61,3 +61,48 @@ my-snap  1.29.0        22606  1.29/stable    canonical✓  -
     assert kubernetes_snaps.is_channel_swap("my-snap", "1.28/stable")
     assert not kubernetes_snaps.is_channel_swap("my-snap", "1.29/stable")
     assert kubernetes_snaps.is_channel_swap("my-snap", "1.30/stable")
+
+
+@pytest.fixture(params=[None, "external"])
+def external_cloud(request):
+    cloud = mock.MagicMock()
+    cloud.has_xcp = request.param == "external"
+    cloud.in_tree.return_value = {}
+    yield cloud
+
+
+@mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
+@mock.patch("charms.kubernetes_snaps.Path")
+def test_configure_kubelet(
+    mock_path,
+    configure_kubernetes_service,
+    external_cloud,
+):
+    kubernetes_snaps.configure_kubelet(
+        "container_runtime_endpoint",
+        "dns_domain",
+        "dns_ip",
+        {},
+        {},
+        external_cloud,
+        "kubeconfig",
+        "node_ip",
+        "registry.io",
+        ["taint:NoExecute"],
+    )
+    configure_kubernetes_service.assert_called_once()
+    service, args, extra = configure_kubernetes_service.call_args[0]
+    assert service == "kubelet"
+    assert extra == {}
+    expected_args = {
+        "kubeconfig": "kubeconfig",
+        "v": "0",
+        "node-ip": "node_ip",
+        "container-runtime-endpoint": "container_runtime_endpoint",
+        "hostname-override": kubernetes_snaps.get_node_name(),
+        "config": "/root/cdk/kubelet/config.yaml",
+        **external_cloud.in_tree.return_value,
+    }
+    if external_cloud.has_xcp:
+        expected_args["cloud-provider"] = "external"
+    assert expected_args == args

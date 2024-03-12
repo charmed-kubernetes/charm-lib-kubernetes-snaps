@@ -47,6 +47,14 @@ CONTROL_PLANE_SNAPS = [
 ]
 
 
+def _snap_common_path(component) -> Path:
+    return Path("/var/snap/{}/common".format(component))
+
+
+def encryption_config_path() -> Path:
+    return _snap_common_path("kube-apiserver") / "encryption/encryption_config.yaml"
+
+
 def configure_apiserver(
     advertise_address,
     audit_policy,
@@ -84,8 +92,9 @@ def configure_apiserver(
     api_opts["kubelet-preferred-address-types"] = (
         "InternalIP,Hostname,InternalDNS,ExternalDNS,ExternalIP"
     )
-    # TODO: encryption at rest
-    # api_opts["encryption-provider-config"] = str(encryption_config_path())
+    enc_provider_config = encryption_config_path()
+    if enc_provider_config.exists():
+        api_opts["encryption-provider-config"] = str(enc_provider_config)
 
     api_opts["advertise-address"] = advertise_address
 

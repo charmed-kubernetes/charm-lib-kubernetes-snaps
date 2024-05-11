@@ -1,13 +1,15 @@
 import ipaddress
+import hashlib
 import json
 import logging
 import os
 import re
+import shlex
 from base64 import b64encode
 from pathlib import Path
 from socket import getfqdn, gethostname
-from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output
-from typing import Optional, Protocol
+from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output, run
+from typing import Iterable, List, Optional, Protocol, Set
 from ops import ActionEvent
 
 import yaml
@@ -15,6 +17,109 @@ from ops import BlockedStatus, MaintenanceStatus
 from packaging import version
 
 import charms.contextual_status as status
+
+log = logging.getLogger(__name__)
+service_account_key_path = Path("/root/cdk/serviceaccount.key")
+
+
+class ConfigDigest:
+    """Crafts a hash for a snap config and its associated configuration files."""
+
+    def __init__(self, files: Set[os.PathLike]) -> None:
+        """Constructs the initial empty hash.
+        
+        Args:
+            files (Set[os.PathLike]): set of files associated with this snap.
+        """
+        self.files = files
+        self.hash = hashlib.sha256()
+
+    def build(self, args: Iterable[str]) -> "ConfigDigest":
+        """Generates a new config digest using the same files.
+
+        The associated hash will be based on
+        * sorted args
+        * sorted file paths
+        * file contents
+        
+        Any change in any of these will result in a new hash value.
+
+        Args:
+            args (Iterable[str]): snap arguments
+        """
+        copy = ConfigDigest(self.files)
+        paths = sorted(map(Path, self.files))
+        copy.hash.update(",".join(sorted(args)).encode())
+        copy.hash.update(",".join(str(f.resolve()) for f in paths).encode())
+        copy.hash.update(b",".join(f.read_bytes() for f in paths if f.exists()))
+        return copy
+
+    def __eq__(self, other: "ConfigDigest") -> bool:
+        """Report whether the two objects have the same hash."""
+        return self.hash.digest() == other.hash.digest()
+
+    def __str__(self) -> str:
+        """Human version of the hash digest"""
+        return self.hash.hexdigest()
+
+    def __repr__(self) -> str:
+        """Repr of the class."""
+        return f"{self.__class__.__name__}({str(self)})"
+
+
+def service_args(service: str) -> List[str]:
+    """Query snap get for a given snap, and list each services arguments."""
+    cmd = ["snap", "get", service, "args"]
+    process = run(cmd, capture_output=True, text=True)
+    if process.returncode != 0:
+        return []
+    return shlex.split(process.stdout)
+
+
+class SnapConfigFiles:
+    """All config files referenced by each snap service.
+    
+    Any changes to these config files should result in a restart of the service.
+    """
+    _certs = {"/root/cdk/server.crt", "/root/cdk/server.key", "/root/cdk/ca.crt"}
+    _controller_manager_files = {*_certs, service_account_key_path}
+    service_files = {
+        "kube-apiserver": {
+            *_controller_manager_files,
+            "/root/cdk/client.crt",
+            "/root/cdk/client.key",
+            "/root/cdk/etcd/client-ca.pem",
+            "/root/cdk/etcd/client-key.pem",
+            "/root/cdk/etcd/client-cert.pem",
+            "/root/cdk/auth-webhook/auth-webhook-conf.yaml",
+            "/root/cdk/audit/audit-policy.yaml",
+            "/root/cdk/audit/audit/audit-webhook-config.yaml",
+        },
+        "kube-controller-manager": {*_controller_manager_files},
+        "kube-proxy": {"/root/cdk/kubeproxy/config.yaml"},
+        "kubelet": {
+            *_certs,
+            "/run/systemd/resolve/resolv.conf",
+            "/root/cdk/kubeconfig",
+            "/root/cdk/kubelet/config.yaml",
+        },
+        "kube-scheduler": {
+            "/root/cdk/kube-scheduler-config.yaml",
+            "/root/cdk/kubeschedulerconfig",
+        },
+    }
+
+
+hasher = {
+    s: ConfigDigest(SnapConfigFiles.service_files[s]).build(service_args(s))
+    for s in [
+        "kube-apiserver",
+        "kube-controller-manager",
+        "kube-proxy",
+        "kubelet",
+        "kube-scheduler",
+    ]
+}
 
 
 class ExternalCloud(Protocol):
@@ -24,8 +129,6 @@ class ExternalCloud(Protocol):
     name: Optional[str]
 
 
-log = logging.getLogger(__name__)
-service_account_key_path = Path("/root/cdk/serviceaccount.key")
 tls_ciphers_intermediate = [
     # https://wiki.mozilla.org/Security/Server_Side_TLS
     # https://ssl-config.mozilla.org/#server=go&config=intermediate
@@ -399,11 +502,13 @@ def configure_kubernetes_service(service, base_args, extra_args_config):
     # construct an arg string for use by 'snap set'.
     args = {k: v for k, v in args.items() if v is not None}
     args = ['--%s="%s"' % arg for arg in args.items()]
-    args = " ".join(args)
 
-    cmd = ["snap", "set", service, f"args={args}"]
-    check_call(cmd)
-    service_restart(f"snap.{service}.daemon")
+    if (built := hasher[service].build(args)) != hasher[service]:
+        args = " ".join(args)
+        cmd = ["snap", "set", service, f"args={args}"]
+        check_call(cmd)
+        service_restart(f"snap.{service}.daemon")
+        hasher[service] = built
 
 
 def configure_scheduler(extra_args_config, kubeconfig):

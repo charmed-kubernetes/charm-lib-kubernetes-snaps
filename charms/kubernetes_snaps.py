@@ -116,25 +116,32 @@ def configure_apiserver(
         "NodeRestriction",
     ]
 
-    has_webhook = "Webhook" in authorization_mode.split(",")
-    has_authz_webhook = (
+    authorization_modes = authorization_mode.split(",")
+    has_authz_webhook = "Webhook" in authorization_modes
+    has_authz_webhook_file = (
         authz_webhook_conf_file
         and authz_webhook_conf_file.exists()
         and authz_webhook_conf_file.stat().st_size > 0
     )
 
-    if has_webhook and not has_authz_webhook:
+    if has_authz_webhook:
+        if has_authz_webhook_file:
+            api_opts["authorization-webhook-config-file"] = (
+                authz_webhook_conf_file.as_posix()
+            )
+        else:
+            log.warning(
+                "Authorization mode includes 'Webhook' but no webhook config file is present."
+                "'Webhook' must be removed from authorization mode."
+            )
+            authorization_modes = authorization_modes.remove("Webhook")
+    elif has_authz_webhook_file:
         log.warning(
-            "Authorization mode includes 'Webhook' but no webhook config file is present."
-        )
-        new_modes = authorization_mode.split(",").remove("Webhook")
-        authorization_mode = ",".join(new_modes)
-    elif has_authz_webhook:
-        api_opts["authorization-webhook-config-file"] = (
-            authz_webhook_conf_file.as_posix()
+            "Authorization mode doesn't include 'Webhook' but a webhook config file is present."
+            "The authorization-webhook-config-file will be ignored."
         )
 
-    api_opts["authorization-mode"] = authorization_mode
+    api_opts["authorization-mode"] = ",".join(authorization_modes)
     api_opts["enable-admission-plugins"] = ",".join(admission_plugins)
 
     api_opts["requestheader-client-ca-file"] = "/root/cdk/ca.crt"

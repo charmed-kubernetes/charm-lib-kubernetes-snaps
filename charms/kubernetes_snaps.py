@@ -67,6 +67,7 @@ def configure_apiserver(
     privileged,
     service_cidr,
     external_cloud_provider: ExternalCloud,
+    authz_webhook_conf_file: Optional[Path] = None,
 ):
     api_opts = {}
     feature_gates = []
@@ -115,46 +116,32 @@ def configure_apiserver(
         "NodeRestriction",
     ]
 
-    # TODO: keystone authz
-    """
-    ks = endpoint_from_flag("keystone-credentials.available")
-    if ks:
-        ks_ip = get_service_ip("k8s-keystone-auth-service", errors_fatal=False)
-        if ks_ip:
-            os.makedirs(keystone_root, exist_ok=True)
+    authorization_modes = authorization_mode.split(",")
+    has_authz_webhook = "Webhook" in authorization_modes
+    has_authz_webhook_file = (
+        authz_webhook_conf_file
+        and authz_webhook_conf_file.exists()
+        and authz_webhook_conf_file.stat().st_size > 0
+    )
 
-            keystone_webhook = keystone_root + "/webhook.yaml"
-            context = {}
-            context["keystone_service_cluster_ip"] = ks_ip
-            render("keystone-api-server-webhook.yaml", keystone_webhook, context)
-
-            if hookenv.config("enable-keystone-authorization"):
-                # if user wants authorization, enable it
-                if "Webhook" not in authorization_mode:
-                    authorization_mode += ",Webhook"
-                api_opts["authorization-webhook-config-file"] = keystone_webhook  # noqa
-            set_state("keystone.apiserver.configured")
+    if has_authz_webhook:
+        if has_authz_webhook_file:
+            api_opts["authorization-webhook-config-file"] = (
+                authz_webhook_conf_file.as_posix()
+            )
         else:
-            hookenv.log("Unable to find k8s-keystone-auth-service. Will retry")
-            # Note that we can get into a nasty state here
-            # if the user has specified webhook and they're relying on
-            # keystone auth to handle that, the api server will fail to
-            # start because we push it Webhook and no webhook config.
-            # We can't generate the config because we can't talk to the
-            # apiserver to get the ip of the service to put into the
-            # webhook template. A chicken and egg problem. To fix this,
-            # remove Webhook if keystone is related and trying to come
-            # up until we can find the service IP.
-            if "Webhook" in authorization_mode:
-                authorization_mode = ",".join(
-                    [i for i in authorization_mode.split(",") if i != "Webhook"]
-                )
-            remove_state("keystone.apiserver.configured")
-    elif is_state("leadership.set.keystone-cdk-addons-configured"):
-        hookenv.log("Keystone endpoint not found, will retry.")
-    """
+            log.warning(
+                "Authorization mode includes 'Webhook' but no webhook config file is present."
+                "'Webhook' must be removed from authorization mode."
+            )
+            authorization_modes = authorization_modes.remove("Webhook")
+    elif has_authz_webhook_file:
+        log.warning(
+            "Authorization mode doesn't include 'Webhook' but a webhook config file is present."
+            "The authorization-webhook-config-file will be ignored."
+        )
 
-    api_opts["authorization-mode"] = authorization_mode
+    api_opts["authorization-mode"] = ",".join(authorization_modes)
     api_opts["enable-admission-plugins"] = ",".join(admission_plugins)
 
     api_opts["requestheader-client-ca-file"] = "/root/cdk/ca.crt"

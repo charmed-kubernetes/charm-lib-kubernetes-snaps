@@ -71,6 +71,40 @@ def external_cloud(request):
     yield cloud
 
 
+def test_create_kubeconfig(tmp_path):
+    path = tmp_path / "kubeconfig"
+    created = kubernetes_snaps.create_kubeconfig(
+        path, "ca-data", "https://192.168.0.1", "test-user", "test-token"
+    )
+    assert created == path
+    assert created.exists()
+    assert (created.stat().st_mode & 0o777) == 0o600
+    text = created.read_text()
+    assert "Y2EtZGF0YQ==" in text
+    assert "https://192.168.0.1" in text
+    assert "test-user" in text
+    assert "test-token" in text
+
+    updated = kubernetes_snaps.update_kubeconfig(path, "new-ca-data")
+    assert updated == path
+    assert updated.exists()
+    assert (updated.stat().st_mode & 0o777) == 0o600
+    text = updated.read_text()
+    assert "bmV3LWNhLWRhdGE=" in text
+    assert "https://192.168.0.1" in text
+    assert "test-user" in text
+    assert "test-token" in text
+
+
+def test_update_kubeconfig_no_file(tmp_path):
+    path = tmp_path / "kubeconfig"
+    nothing = kubernetes_snaps.update_kubeconfig(path)
+    assert not nothing.exists()
+
+    with pytest.raises(FileNotFoundError):
+        kubernetes_snaps.update_kubeconfig(nothing, ca="new-ca-data")
+
+
 @mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
 @mock.patch("charms.kubernetes_snaps.Path")
 def test_configure_kubelet(

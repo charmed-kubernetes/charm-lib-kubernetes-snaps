@@ -37,7 +37,8 @@ tls_ciphers_intermediate = [
     "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
 ]
 
-
+JUJU_CLUSTER = "juju-cluster"
+JUJU_CONTEXT = "juju-context"
 BASIC_SNAPS = ["kubectl", "kubelet", "kube-proxy"]
 CONTROL_PLANE_SNAPS = [
     "kube-apiserver",
@@ -451,35 +452,86 @@ RestartSec=10"""
     check_call(["systemctl", "daemon-reload"])
 
 
+def update_kubeconfig(
+    dest: os.PathLike,
+    ca: Optional[str] = None,
+    server: Optional[str] = None,
+    user: Optional[str] = None,
+    token: Optional[str] = None,
+) -> Path:
+    """Update a kubeconfig file with the given parameters. If the file does not
+    exist, it will be created. If the file does exist, it will be updated with
+    the given parameters.
+
+    Args:
+        dest: The path to the kubeconfig file.
+        ca: The certificate authority data.
+        server: The server URL.
+        user: The user name.
+        token: The user token.
+
+    Raises:
+        FileNotFoundError: If the kubeconfig file does not exist.
+        KeyError: If the kubeconfig file is not in the expected format.
+        AssertionError: If the kubeconfig file is not in the expected format.
+
+    Returns:
+        Path: the updated kubeconfig file.
+    """
+    target, target_new = Path(dest), Path(f"{dest}.new")
+    if all(f is None for f in (ca, server, user, token)):
+        log.warning("Nothing provided to update kubeconfig %s", dest)
+        return target
+    if any(f is None for f in (ca, server, user, token)):
+        log.info("Updating existing kubeconfig %s", dest)
+        if not target.exists():
+            raise FileNotFoundError(f"Cannot update kubeconfig: {target}")
+        content = yaml.safe_load(target.read_text())
+        assert content["clusters"][0]["name"] == JUJU_CLUSTER
+        assert content["contexts"][0]["name"] == JUJU_CONTEXT
+        assert content["contexts"][0]["context"]["cluster"] == JUJU_CLUSTER
+    else:
+        log.info("Creating wholly new kubeconfig: %s", dest)
+        content = {
+            "apiVersion": "v1",
+            "kind": "Config",
+            "clusters": [
+                {
+                    "cluster": {"certificate-authority-data": None, "server": None},
+                    "name": JUJU_CLUSTER,
+                }
+            ],
+            "contexts": [
+                {
+                    "context": {"cluster": JUJU_CLUSTER, "user": None},
+                    "name": JUJU_CONTEXT,
+                }
+            ],
+            "current-context": JUJU_CONTEXT,
+            "preferences": {},
+            "users": [{"name": None, "user": {"token": None}}],
+        }
+
+    if ca:
+        ca_base64 = b64encode(ca.encode("utf-8")).decode("utf-8")
+        content["clusters"][0]["cluster"]["certificate-authority-data"] = ca_base64
+    if server:
+        content["clusters"][0]["cluster"]["server"] = server
+    if user:
+        content["contexts"][0]["context"]["user"] = user
+        content["users"][0]["name"] = user
+    if token:
+        content["users"][0]["user"]["token"] = token
+    target_new.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    target_new.write_text(yaml.safe_dump(content))
+    target_new.chmod(0o600)
+    target_new.rename(target)
+    return target
+
+
 def create_kubeconfig(dest, ca, server, user, token):
-    ca_base64 = b64encode(ca.encode("utf-8")).decode("utf-8")
-    kubeconfig = {
-        "apiVersion": "v1",
-        "kind": "Config",
-        "clusters": [
-            {
-                "cluster": {"certificate-authority-data": ca_base64, "server": server},
-                "name": "juju-cluster",
-            }
-        ],
-        "contexts": [
-            {
-                "context": {"cluster": "juju-cluster", "user": user},
-                "name": "juju-context",
-            }
-        ],
-        "current-context": "juju-context",
-        "preferences": {},
-        "users": [{"name": user, "user": {"token": token}}],
-    }
-
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-
-    # Write to temp file so we can replace dest atomically
-    temp_dest = dest + ".new"
-    with open(temp_dest, "w") as f:
-        yaml.safe_dump(kubeconfig, f)
-    os.replace(temp_dest, dest)
+    """Create a kubeconfig file with the given parameters."""
+    return update_kubeconfig(dest, ca, server, user, token)
 
 
 def create_service_account_key():

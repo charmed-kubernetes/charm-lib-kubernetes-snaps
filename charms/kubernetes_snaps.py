@@ -524,7 +524,6 @@ def update_kubeconfig(
         content["users"][0]["user"]["token"] = token
     target_new.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
     target_new.write_text(yaml.safe_dump(content))
-    target_new.chmod(0o600)
     target_new.rename(target)
     return target
 

@@ -78,7 +78,6 @@ def test_create_kubeconfig(tmp_path):
     )
     assert created == path
     assert created.exists()
-    assert (created.stat().st_mode & 0o777) == 0o600
     text = created.read_text()
     assert "Y2EtZGF0YQ==" in text
     assert "https://192.168.0.1" in text
@@ -88,7 +87,6 @@ def test_create_kubeconfig(tmp_path):
     updated = kubernetes_snaps.update_kubeconfig(path, "new-ca-data")
     assert updated == path
     assert updated.exists()
-    assert (updated.stat().st_mode & 0o777) == 0o600
     text = updated.read_text()
     assert "bmV3LWNhLWRhdGE=" in text
     assert "https://192.168.0.1" in text

@@ -135,7 +135,7 @@ def configure_apiserver(
                 "Authorization mode includes 'Webhook' but no webhook config file is present."
                 "'Webhook' must be removed from authorization mode."
             )
-            authorization_modes = authorization_modes.remove("Webhook")
+            authorization_modes.remove("Webhook")
     elif has_authz_webhook_file:
         log.warning(
             "Authorization mode doesn't include 'Webhook' but a webhook config file is present."
@@ -163,28 +163,28 @@ def configure_apiserver(
 
     api_opts["feature-gates"] = ",".join(feature_gates)
 
-    audit_root = "/root/cdk/audit"
-    audit_log_path = audit_root + "/audit.log"
-    audit_policy_path = audit_root + "/audit-policy.yaml"
-    audit_webhook_conf_path = audit_root + "/audit-webhook-config.yaml"
-    os.makedirs(audit_root, exist_ok=True)
+    audit_root = Path("/root/cdk/audit")
+    audit_log_path = audit_root / "audit.log"
+    audit_policy_path = audit_root / "audit-policy.yaml"
+    audit_webhook_conf_path = audit_root / "audit-webhook-config.yaml"
+    audit_root.mkdir(exist_ok=True)
 
-    api_opts["audit-log-path"] = audit_log_path
+    api_opts["audit-log-path"] = str(audit_log_path)
     api_opts["audit-log-maxage"] = "30"
     api_opts["audit-log-maxsize"] = "100"
     api_opts["audit-log-maxbackup"] = "10"
 
     if audit_policy:
-        with open(audit_policy_path, "w") as f:
+        with audit_policy_path.open("w") as f:
             f.write(audit_policy)
-        api_opts["audit-policy-file"] = audit_policy_path
+        api_opts["audit-policy-file"] = str(audit_policy_path)
     else:
         remove_if_exists(audit_policy_path)
 
     if audit_webhook_conf:
-        with open(audit_webhook_conf_path, "w") as f:
+        with audit_webhook_conf_path.open("w") as f:
             f.write(audit_webhook_conf)
-        api_opts["audit-webhook-config-file"] = audit_webhook_conf_path
+        api_opts["audit-webhook-config-file"] = str(audit_webhook_conf_path)
     else:
         remove_if_exists(audit_webhook_conf_path)
 

@@ -1,7 +1,6 @@
 import pytest
 import unittest.mock as mock
 
-
 from charms import kubernetes_snaps
 
 
@@ -134,6 +133,78 @@ def test_configure_kubelet(
         "hostname-override": kubernetes_snaps.get_node_name(),
         "config": "/root/cdk/kubelet/config.yaml",
         **external_cloud.in_tree.return_value,
+    }
+    if external_cloud.has_xcp:
+        expected_args["cloud-provider"] = "external"
+    assert expected_args == args
+
+
+@mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
+@mock.patch("charms.kubernetes_snaps.Path")
+def test_configure_apiserver(mock_path, configure_kubernetes_service, external_cloud):
+    mock_path().__truediv__().__str__.return_value = "/some/path"
+    kubernetes_snaps.configure_apiserver(
+        "advertise_address",
+        "audit_policy",
+        "audit_webhook_conf",
+        "auth_webhook_conf",
+        "Node,RBAC,Webhook",
+        "ignored",
+        "https://1.1.1.1,https://1.1.1.2",
+        {},
+        "false",
+        "10.10.10.0/24",
+        external_cloud,
+        None,
+    )
+    configure_kubernetes_service.assert_called_once()
+    service, args, extra = configure_kubernetes_service.call_args[0]
+    assert service == "kube-apiserver"
+    assert extra == {}
+    expected_args = {
+        "allow-privileged": "true",
+        "service-cluster-ip-range": "10.10.10.0/24",
+        "min-request-timeout": "300",
+        "v": "4",
+        "tls-cert-file": "/root/cdk/server.crt",
+        "tls-private-key-file": "/root/cdk/server.key",
+        "tls-cipher-suites": "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
+        "kubelet-certificate-authority": "/root/cdk/ca.crt",
+        "kubelet-client-certificate": "/root/cdk/client.crt",
+        "kubelet-client-key": "/root/cdk/client.key",
+        "storage-backend": "etcd3",
+        "profiling": "false",
+        "anonymous-auth": "false",
+        "authentication-token-webhook-cache-ttl": "1m0s",
+        "authentication-token-webhook-config-file": "auth_webhook_conf",
+        "service-account-issuer": "https://kubernetes.default.svc",
+        "service-account-signing-key-file": "/root/cdk/serviceaccount.key",
+        "service-account-key-file": "/root/cdk/serviceaccount.key",
+        "kubelet-preferred-address-types": "InternalIP,Hostname,InternalDNS,ExternalDNS,ExternalIP",
+        "encryption-provider-config": "/some/path",
+        "advertise-address": "advertise_address",
+        "etcd-cafile": "/root/cdk/etcd/client-ca.pem",
+        "etcd-keyfile": "/root/cdk/etcd/client-key.pem",
+        "etcd-certfile": "/root/cdk/etcd/client-cert.pem",
+        "etcd-servers": "https://1.1.1.1,https://1.1.1.2",
+        "authorization-mode": "Node,RBAC",
+        "enable-admission-plugins": "PersistentVolumeLabel,NodeRestriction",
+        "requestheader-client-ca-file": "/root/cdk/ca.crt",
+        "requestheader-allowed-names": "system:kube-apiserver,client",
+        "requestheader-extra-headers-prefix": "X-Remote-Extra-",
+        "requestheader-group-headers": "X-Remote-Group",
+        "requestheader-username-headers": "X-Remote-User",
+        "proxy-client-cert-file": "/root/cdk/client.crt",
+        "proxy-client-key-file": "/root/cdk/client.key",
+        "enable-aggregator-routing": "true",
+        "client-ca-file": "/root/cdk/ca.crt",
+        "feature-gates": "",
+        "audit-log-path": "/some/path",
+        "audit-log-maxage": "30",
+        "audit-log-maxsize": "100",
+        "audit-log-maxbackup": "10",
+        "audit-policy-file": "/some/path",
+        "audit-webhook-config-file": "/some/path",
     }
     if external_cloud.has_xcp:
         expected_args["cloud-provider"] = "external"

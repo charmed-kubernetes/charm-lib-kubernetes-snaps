@@ -43,7 +43,6 @@ CONTROL_PLANE_SNAPS = [
     "kube-apiserver",
     "kube-controller-manager",
     "kube-scheduler",
-    "cdk-addons",
 ]
 
 

@@ -188,7 +188,7 @@ def test_configure_apiserver(mock_path, configure_kubernetes_service, external_c
         "etcd-certfile": "/root/cdk/etcd/client-cert.pem",
         "etcd-servers": "https://1.1.1.1,https://1.1.1.2",
         "authorization-mode": "Node,RBAC",
-        "enable-admission-plugins": "PersistentVolumeLabel,NodeRestriction",
+        "enable-admission-plugins": "NodeRestriction",
         "requestheader-client-ca-file": "/root/cdk/ca.crt",
         "requestheader-allowed-names": "system:kube-apiserver,client",
         "requestheader-extra-headers-prefix": "X-Remote-Extra-",

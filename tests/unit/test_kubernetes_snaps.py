@@ -2,6 +2,7 @@ import pytest
 import unittest.mock as mock
 
 from charms import kubernetes_snaps
+import charms.contextual_status as status
 
 
 @pytest.fixture(autouse=True)
@@ -22,18 +23,37 @@ def subprocess_call():
 def test_upgrade_action_control_plane(is_channel_available, is_channel_swap, caplog):
     mock_event = mock.MagicMock()
     channel = "1.28/edge"
-    kubernetes_snaps.upgrade_snaps(channel, mock_event, control_plane=True)
+    with status.context(mock_event.model.unit):
+        kubernetes_snaps.upgrade_snaps(channel, mock_event, control_plane=True)
     snaps = kubernetes_snaps.BASIC_SNAPS + kubernetes_snaps.CONTROL_PLANE_SNAPS
     is_channel_available.assert_has_calls([mock.call(s, channel) for s in snaps])
     is_channel_swap.assert_has_calls([mock.call(s, channel) for s in snaps])
+    assert f"Starting the upgrade of Kubernetes snaps to {channel}." in caplog.messages
     assert (
-        f"Starting the upgrade of Kubernetes snaps to '{channel}' channel."
-        in caplog.messages
+        f"Successfully upgraded Kubernetes snaps to the {channel}." in caplog.messages
     )
-    assert (
-        f"Successfully upgraded Kubernetes snaps to the '{channel}' channel."
-        in caplog.messages
-    )
+    mock_event.set_results.assert_called_once()
+    mock_event.fail.assert_not_called()
+
+
+@mock.patch.object(kubernetes_snaps, "is_channel_swap", return_value=False)
+@mock.patch.object(kubernetes_snaps, "is_channel_available", return_value=False)
+@mock.patch.object(kubernetes_snaps, "install_snap", mock.MagicMock())
+def test_upgrade_action_control_plane_fails_available(
+    is_channel_available, is_channel_swap, caplog
+):
+    mock_event = mock.MagicMock()
+    channel = "1.28/edge"
+    with status.context(mock_event.model.unit):
+        kubernetes_snaps.upgrade_snaps(channel, mock_event, control_plane=True)
+    snaps = kubernetes_snaps.BASIC_SNAPS + kubernetes_snaps.CONTROL_PLANE_SNAPS
+    is_channel_available.assert_has_calls([mock.call(s, channel) for s in snaps])
+    is_channel_swap.assert_not_called()
+    assert "Starting the upgrade of Kubernetes snaps to" in caplog.messages[0]
+    assert "The following snaps do not have a revision on channel" in caplog.messages[1]
+    assert "Upgrade failed with a detectable error" in caplog.messages[2]
+    mock_event.fail.assert_called_once()
+    mock_event.set_results.assert_not_called()
 
 
 def test_is_snap_available(subprocess_check_output):

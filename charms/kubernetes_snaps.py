@@ -24,6 +24,10 @@ class ExternalCloud(Protocol):
     name: Optional[str]
 
 
+class SnapInstallError(Exception):
+    """Raised when a snap install fails for a detectable reason."""
+
+
 log = logging.getLogger(__name__)
 service_account_key_path = Path("/root/cdk/serviceaccount.key")
 tls_ciphers_intermediate = [
@@ -649,12 +653,14 @@ def install(channel, control_plane=False, upgrade=False):
             channel,
             ",".join(sorted(missing)),
         )
-        status.add(BlockedStatus(f"Not all snaps are available on channel={channel}"))
-        return
+        msg = f"Not all snaps are available on channel={channel}"
+        status.add(BlockedStatus(msg))
+        raise SnapInstallError(msg)
 
     if any(is_channel_swap(snap, channel) for snap in which_snaps) and not upgrade:
-        status.add(BlockedStatus("Needs manual upgrade, run the upgrade action."))
-        return
+        msg = "Needs manual upgrade, run the upgrade action."
+        status.add(BlockedStatus(msg))
+        raise SnapInstallError(msg)
 
     # Refresh with ignore_running=True ONLY for non-daemon apps (i.e. kubectl)
     # https://bugs.launchpad.net/bugs/1987331
@@ -803,24 +809,30 @@ def set_default_cni_conf_file(cni_conf_file):
 
 
 def upgrade_snaps(channel: str, event: ActionEvent, control_plane: bool = False):
-    log.info(f"Starting the upgrade of Kubernetes snaps to '{channel}' channel.")
+    """Upgrade the snaps from an upgrade action event."""
+    log_it = f"Starting the upgrade of Kubernetes snaps to {channel}."
+    event.log(log_it)
+    log.info(log_it)
+    error_message = None
+
     try:
         install(channel=channel, control_plane=control_plane, upgrade=True)
-    except (CalledProcessError, Exception) as e:
-        if isinstance(e, CalledProcessError):
-            error_message = f"Upgrade failed with a process error. stdout: {e.stdout}, stderr: {e.stderr}"
+    except status.ReconcilerError as e:
+        ec = e.__context__
+        if isinstance(ec, CalledProcessError):
+            error_message = f"Upgrade failed with a process error. stdout: {ec.stdout}, stderr: {ec.stderr}"
+        elif isinstance(ec, SnapInstallError):
+            error_message = f"Upgrade failed with a detectable error: {ec}"
         else:
-            error_message = f"An unexpected error occurred during the upgrade: {e}"
-
+            error_message = f"An unexpected error occurred during the upgrade: {ec}"
         log.exception(error_message)
-        status.add("Snap upgrade failed. Check action results for more information.")
+
+    if error_message:
         event.fail(error_message)
     else:
-        result_message = (
-            f"Successfully upgraded Kubernetes snaps to the '{channel}' channel."
-        )
-        log.info(result_message)
-        event.set_results({"result": result_message})
+        log_it = f"Successfully upgraded Kubernetes snaps to the {channel}."
+        log.info(log_it)
+        event.set_results({"result": log_it})
 
 
 def v1_taint_from_string(taint: str):

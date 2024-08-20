@@ -1,0 +1,1 @@
+charm-lib-contextual-status@git+https://github.com/charmed-kubernetes/charm-lib-contextual-status

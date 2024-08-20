@@ -12,7 +12,7 @@ description = "Charm library for installing and configuring Kubernetes snaps"
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
-  "charm-lib-contextual-status@git+https://github.com/charmed-kubernetes/charm-lib-contextual-status",
+  "charm-lib-contextual-status",
   "ops",
   "PyYAML",
   "packaging",

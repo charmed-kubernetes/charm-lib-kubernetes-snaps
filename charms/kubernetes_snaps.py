@@ -6,7 +6,6 @@ import logging
 import os
 import re
 from base64 import b64encode
-from functools import lru_cache
 from pathlib import Path
 from socket import getfqdn, gethostname
 from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output
@@ -479,17 +478,20 @@ def configure_scheduler(extra_args_config, kubeconfig):
     )
 
 
-@lru_cache
-def _sha256_file(config_file):
+def _sha256_file(config_file: str) -> hashlib.sha256:
     h = hashlib.sha256()
-    if Path(config_file).exists():
-        with open(config_file, "rb") as file:
+    h.update(config_file.encode())
+    config_file = Path(config_file)
+    if config_file.exists():
+        with config_file.open("rb") as file:
             while True:
                 # Reading is buffered, so we can read smaller chunks.
                 chunk = file.read(h.block_size)
                 if not chunk:
                     break
                 h.update(chunk)
+    else:
+        h.update(b"--empty--")
     return h
 
 
@@ -505,7 +507,7 @@ def _dict_compare(d1, d2):
 
 
 @contextlib.contextmanager
-def _calculate_config_difference(service, args, config_files):
+def _calculate_config_difference(service: str, args, config_files):
     args_hash = _snap_common_path(service) / "args-hash.txt"
 
     # gather existing config hash
@@ -524,18 +526,18 @@ def _calculate_config_difference(service, args, config_files):
     # discern differences
     added, removed, modified, _ = _dict_compare(updated, current)
     for key in added:
-        log.debug("New config value %s in test", key)
+        log.debug("%s: Added config value %s", service.capitalize(), key)
     for key in removed:
-        log.debug("Dropped config value %s in test", key)
+        log.debug("%s: Dropped config value %s", service.capitalize(), key)
     for key in modified:
-        log.debug("Updated config value %s in test", key)
+        log.debug("%s: Updated config value %s", service.capitalize(), key)
 
     different = added or removed or modified
     yield different
     if different:
         yaml.safe_dump(updated, args_hash.open("w"))
     else:
-        log.debug("No config changes detected for %s", service)
+        log.debug("%s: No config changes detected", service.capitalize())
 
 
 def configure_kubernetes_service(

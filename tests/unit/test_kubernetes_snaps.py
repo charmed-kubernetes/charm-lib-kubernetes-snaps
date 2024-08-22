@@ -1,4 +1,6 @@
+import logging
 import pytest
+import yaml
 import unittest.mock as mock
 
 from charms import kubernetes_snaps
@@ -136,17 +138,17 @@ def test_configure_kubelet(
         {},
         {},
         external_cloud,
-        "kubeconfig",
+        "/path/to/kubeconfig",
         "node_ip",
         "registry.io",
         ["taint:NoExecute"],
     )
     configure_kubernetes_service.assert_called_once()
-    service, args, extra = configure_kubernetes_service.call_args[0]
+    service, args, extra, config_files = configure_kubernetes_service.call_args[0]
     assert service == "kubelet"
     assert extra == {}
     expected_args = {
-        "kubeconfig": "kubeconfig",
+        "kubeconfig": "/path/to/kubeconfig",
         "v": "0",
         "node-ip": "node_ip",
         "container-runtime-endpoint": "container_runtime_endpoint",
@@ -157,6 +159,14 @@ def test_configure_kubelet(
     if external_cloud.has_xcp:
         expected_args["cloud-provider"] = "external"
     assert expected_args == args
+    assert config_files == {
+        "/path/to/kubeconfig",
+        "/root/cdk/ca.crt",
+        "/root/cdk/kubelet/config.yaml",
+        "/root/cdk/server.crt",
+        "/root/cdk/server.key",
+        "/run/systemd/resolve/resolv.conf",
+    }
 
 
 @mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
@@ -178,7 +188,7 @@ def test_configure_apiserver(mock_path, configure_kubernetes_service, external_c
         None,
     )
     configure_kubernetes_service.assert_called_once()
-    service, args, extra = configure_kubernetes_service.call_args[0]
+    service, args, extra, config_files = configure_kubernetes_service.call_args[0]
     assert service == "kube-apiserver"
     assert extra == {}
     expected_args = {
@@ -226,6 +236,72 @@ def test_configure_apiserver(mock_path, configure_kubernetes_service, external_c
         "audit-policy-file": "/some/path",
         "audit-webhook-config-file": "/some/path",
     }
+    assert "/root/cdk/ca.crt" in config_files
     if external_cloud.has_xcp:
         expected_args["cloud-provider"] = "external"
     assert expected_args == args
+
+
+@mock.patch("pathlib.Path.exists", mock.MagicMock(return_value=True))
+@mock.patch("charms.kubernetes_snaps.check_call")
+@mock.patch("charms.kubernetes_snaps.service_restart")
+def test_configure_kubernetes_service_same_config(service_restart, check_call, caplog):
+    caplog.set_level(logging.DEBUG)
+    log_message = "No config changes detected for test"
+    base_args = {"arg1": "val1", "arg2": "val2"}
+    extra_args = "arg2=val2-updated arg3=val3"
+    hashed = {
+        "arg1": "cc1d9c865e8380c2d566dc724c66369051acfaa3e9e8f36ad6c67d7d9b8461a5",  # val1
+        "arg2": "05a202bd2f507925efc418afec49c00c5904bb532f5b59588dd1cb76773c5075",  # val2-updated
+        "arg3": "bac8d4414984861d5199b7a97699c728bee36c4084299b2ca905434cf65d8944",  # val3
+    }
+    yamlized = yaml.safe_dump(hashed)
+    with mock.patch(
+        "pathlib.Path.open", mock.mock_open(read_data=yamlized)
+    ) as mock_open:
+        kubernetes_snaps.configure_kubernetes_service("test", base_args, extra_args)
+    mock_open.assert_called_once()
+    service_restart.assert_not_called()
+    check_call.assert_not_called()
+    assert log_message in caplog.text
+
+
+@mock.patch("pathlib.Path.exists", mock.MagicMock(return_value=True))
+@mock.patch("charms.kubernetes_snaps.check_call")
+@mock.patch("charms.kubernetes_snaps.service_restart")
+@pytest.mark.parametrize(
+    "extra_args, log_message",
+    [
+        ("arg2=val2-updated", "Dropped config value arg3 in test"),
+        (
+            "arg2=val2-updated arg3=val3 arg4=val4",
+            "New config value arg4 in test",
+        ),
+        (
+            "arg2=val2-updated arg3=val3-updated",
+            "Updated config value arg3 in test",
+        ),
+    ],
+    ids=["drop_key", "add_key", "update_key"],
+)
+def test_configure_kubernetes_service_difference(
+    service_restart, check_call, extra_args, log_message, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    base_args = {"arg1": "val1", "arg2": "val2"}
+    hashed = {
+        "arg1": "cc1d9c865e8380c2d566dc724c66369051acfaa3e9e8f36ad6c67d7d9b8461a5",
+        "arg2": "05a202bd2f507925efc418afec49c00c5904bb532f5b59588dd1cb76773c5075",  # val2-updated
+        "arg3": "bac8d4414984861d5199b7a97699c728bee36c4084299b2ca905434cf65d8944",  # val3
+    }
+    yamlized = yaml.safe_dump(hashed)
+    with mock.patch(
+        "pathlib.Path.open", mock.mock_open(read_data=yamlized)
+    ) as mock_open:
+        with mock.patch("yaml.safe_dump") as safe_dump:
+            kubernetes_snaps.configure_kubernetes_service("test", base_args, extra_args)
+    service_restart.assert_called_once_with("snap.test.daemon")
+    check_call.assert_called_once()
+    mock_open.assert_has_calls([mock.call(), mock.call("w")], any_order=True)
+    safe_dump.assert_called_once()
+    assert log_message in caplog.text

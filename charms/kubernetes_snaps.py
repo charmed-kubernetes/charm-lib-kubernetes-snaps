@@ -482,7 +482,7 @@ def _sha256_file(config_file: str) -> hashlib.sha256:
     h = hashlib.sha256()
     h.update(config_file.encode())
     config_file = Path(config_file)
-    if config_file.exists():
+    if Path.is_file(config_file):
         with config_file.open("rb") as file:
             while True:
                 # Reading is buffered, so we can read smaller chunks.
@@ -512,7 +512,7 @@ def _calculate_config_difference(service: str, args, config_files):
 
     # gather existing config hash
     current, updated = {}, {}
-    if args_hash.exists():
+    if Path.is_file(args_hash):
         try:
             current.update(yaml.safe_load(args_hash.open()))
         except yaml.YAMLError:
@@ -526,7 +526,7 @@ def _calculate_config_difference(service: str, args, config_files):
     # discern differences
     added, removed, modified, _ = _dict_compare(updated, current)
     for key in added:
-        log.debug("%s: Added config value %s", service.capitalize(), key)
+        log.debug("%s:   Added config value %s", service.capitalize(), key)
     for key in removed:
         log.debug("%s: Dropped config value %s", service.capitalize(), key)
     for key in modified:

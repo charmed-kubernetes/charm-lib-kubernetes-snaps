@@ -242,7 +242,7 @@ def test_configure_apiserver(mock_path, configure_kubernetes_service, external_c
     assert expected_args == args
 
 
-@mock.patch("pathlib.Path.exists", mock.MagicMock(return_value=True))
+@mock.patch("pathlib.Path.is_file", mock.MagicMock(return_value=True))
 @mock.patch("charms.kubernetes_snaps.check_call")
 @mock.patch("charms.kubernetes_snaps.service_restart")
 def test_configure_kubernetes_service_same_config(service_restart, check_call, caplog):
@@ -266,7 +266,7 @@ def test_configure_kubernetes_service_same_config(service_restart, check_call, c
     assert log_message in caplog.text
 
 
-@mock.patch("pathlib.Path.exists", mock.MagicMock(return_value=True))
+@mock.patch("pathlib.Path.is_file", mock.MagicMock(return_value=True))
 @mock.patch("charms.kubernetes_snaps.check_call")
 @mock.patch("charms.kubernetes_snaps.service_restart")
 @pytest.mark.parametrize(
@@ -275,7 +275,7 @@ def test_configure_kubernetes_service_same_config(service_restart, check_call, c
         ("arg2=val2-updated", "Test: Dropped config value arg3"),
         (
             "arg2=val2-updated arg3=val3 arg4=val4",
-            "Test: Added config value arg4",
+            "Test:   Added config value arg4",
         ),
         (
             "arg2=val2-updated arg3=val3-updated",
@@ -307,26 +307,26 @@ def test_configure_kubernetes_service_difference(
     assert log_message in caplog.text
 
 
-@mock.patch("pathlib.Path.exists")
-def test_sha256_file(mock_exists):
+@mock.patch("pathlib.Path.is_file")
+def test_sha256_file(mock_is_file):
     # Non Existent file
-    mock_exists.return_value = False
+    mock_is_file.return_value = False
     hash = kubernetes_snaps._sha256_file("/path/to/file/1").hexdigest()
     assert hash == "8054b8176bf428f030f0fb8b62ca2c26cf0b983196cfe97358cfb1e206aa9d75"
 
     # Non Existent file with a different name
-    mock_exists.return_value = False
+    mock_is_file.return_value = False
     hash = kubernetes_snaps._sha256_file("/path/to/file/2").hexdigest()
     assert hash == "f337cf841ac045041455bff9cc3f2e0b8a2a5bf5dfe44a0152be04e4fc2355b5"
 
     # Existing file with same name but empty
-    mock_exists.return_value = True
+    mock_is_file.return_value = True
     with mock.patch("pathlib.Path.open", mock.mock_open(read_data=b"")):
         hash = kubernetes_snaps._sha256_file("/path/to/file/2").hexdigest()
     assert hash == "8d6fb329915afba8724a741f422894e127217854fe1934679e50d2115c2c3ca6"
 
     # Existing file with same name with data
-    mock_exists.return_value = True
+    mock_is_file.return_value = True
     with mock.patch("pathlib.Path.open", mock.mock_open(read_data=b"data")):
         hash = kubernetes_snaps._sha256_file("/path/to/file/2").hexdigest()
     assert hash == "63699fd3e47d9eb242fe6763bc387a9f3f6d1ae3f08bf7a7c437cec51ce2d0c4"

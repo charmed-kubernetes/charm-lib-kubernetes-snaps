@@ -478,6 +478,12 @@ def configure_scheduler(extra_args_config, kubeconfig):
     )
 
 
+def _enable_config_hashing() -> bool:
+    """This is a debug option to enable config hashing."""
+    env = os.environ.get("JUJU_FEATURE_KUBERNETES_SNAP_CONFIG_HASHING") or ""
+    return env.lower() == "on"
+
+
 def _sha256_file(config_file: str) -> hashlib.sha256:
     h = hashlib.sha256()
     h.update(config_file.encode())
@@ -510,6 +516,13 @@ def _dict_compare(d1, d2):
 def _calculate_config_difference(service: str, args, config_files):
     args_hash = _snap_common_path(service) / "args-hash.txt"
 
+    if not _enable_config_hashing():
+        log.debug("Config hashing disabled, skipping config change detection")
+        yield True
+        args_hash.unlink(missing_ok=True)
+        return
+
+    log.debug("Checking for config changes for %s", service)
     # gather existing config hash
     current, updated = {}, {}
     if Path.is_file(args_hash):

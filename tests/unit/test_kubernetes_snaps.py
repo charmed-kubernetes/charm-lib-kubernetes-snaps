@@ -245,7 +245,36 @@ def test_configure_apiserver(mock_path, configure_kubernetes_service, external_c
 @mock.patch("pathlib.Path.is_file", mock.MagicMock(return_value=True))
 @mock.patch("charms.kubernetes_snaps.check_call")
 @mock.patch("charms.kubernetes_snaps.service_restart")
-def test_configure_kubernetes_service_same_config(service_restart, check_call, caplog):
+def test_configure_kubernetes_service_no_hashing(
+    service_restart, check_call, caplog, monkeypatch
+):
+    monkeypatch.setenv("JUJU_FEATURE_KUBERNETES_SNAP_CONFIG_HASHING", "")
+    caplog.set_level(logging.DEBUG)
+    log_message = "Config hashing disabled, skipping config change detection"
+    base_args = {"arg1": "val1", "arg2": "val2"}
+    extra_args = "arg2=val2-updated arg3=val3"
+    with mock.patch("pathlib.Path.unlink") as mock_unlink:
+        kubernetes_snaps.configure_kubernetes_service("test", base_args, extra_args)
+    service_restart.assert_called_once_with("snap.test.daemon")
+    check_call.assert_called_once_with(
+        [
+            "snap",
+            "set",
+            "test",
+            'args=--arg1="val1" --arg2="val2-updated" --arg3="val3"',
+        ]
+    )
+    mock_unlink.assert_called_once_with(missing_ok=True)
+    assert log_message in caplog.text
+
+
+@mock.patch("pathlib.Path.is_file", mock.MagicMock(return_value=True))
+@mock.patch("charms.kubernetes_snaps.check_call")
+@mock.patch("charms.kubernetes_snaps.service_restart")
+def test_configure_kubernetes_service_same_config(
+    service_restart, check_call, caplog, monkeypatch
+):
+    monkeypatch.setenv("JUJU_FEATURE_KUBERNETES_SNAP_CONFIG_HASHING", "on")
     caplog.set_level(logging.DEBUG)
     log_message = "Test: No config changes detected"
     base_args = {"arg1": "val1", "arg2": "val2"}
@@ -285,8 +314,9 @@ def test_configure_kubernetes_service_same_config(service_restart, check_call, c
     ids=["drop_key", "add_key", "update_key"],
 )
 def test_configure_kubernetes_service_difference(
-    service_restart, check_call, extra_args, log_message, caplog
+    service_restart, check_call, extra_args, log_message, caplog, monkeypatch
 ):
+    monkeypatch.setenv("JUJU_FEATURE_KUBERNETES_SNAP_CONFIG_HASHING", "on")
     caplog.set_level(logging.DEBUG)
     base_args = {"arg1": "val1", "arg2": "val2"}
     hashed = {

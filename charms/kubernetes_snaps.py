@@ -7,7 +7,7 @@ from base64 import b64encode
 from pathlib import Path
 from socket import getfqdn, gethostname
 from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output
-from typing import Optional, Protocol
+from typing import Optional, List, Protocol
 from ops import ActionEvent
 
 import yaml
@@ -546,13 +546,7 @@ def create_service_account_key():
     return dest.read_text()
 
 
-def get_bind_addresses(ipv4=True, ipv6=True):
-    def _as_address(addr_str):
-        try:
-            return ipaddress.ip_address(addr_str)
-        except ValueError:
-            return None
-
+def _get_global_addresses() -> List[str]:
     try:
         output = check_output(["ip", "-j", "-br", "addr", "show", "scope", "global"])
     except CalledProcessError as e:
@@ -560,7 +554,28 @@ def get_bind_addresses(ipv4=True, ipv6=True):
         log.error("Unable to determine global addresses")
         log.exception(e)
         return []
+    return json.loads(output.decode("utf8"))
 
+
+def _get_loopback_addresses() -> List[str]:
+    try:
+        output = check_output(["ip", "-j", "-br", "addr", "show", "lo"])
+    except CalledProcessError as e:
+        # stderr will have any details, and go to the log
+        log.error("Unable to determine loopback addresses")
+        log.exception(e)
+        return []
+    return json.loads(output.decode("utf8"))
+
+
+def get_bind_addresses(ipv4=True, ipv6=True):
+    def _as_address(addr_str):
+        try:
+            return ipaddress.ip_address(addr_str)
+        except ValueError:
+            return None
+
+    device_addresses = _get_loopback_addresses() + _get_global_addresses()
     ignore_interfaces = ("lxdbr", "flannel", "cni", "virbr", "docker")
     accept_versions = set()
     if ipv4:
@@ -569,11 +584,22 @@ def get_bind_addresses(ipv4=True, ipv6=True):
         accept_versions.add(6)
 
     addrs = []
-    for addr in json.loads(output.decode("utf8")):
-        if addr["operstate"].upper() != "UP" or any(
-            addr["ifname"].startswith(prefix) for prefix in ignore_interfaces
-        ):
-            log.debug(f"Skipping bind address for interface {addr.get('ifname')}")
+    for addr in device_addresses:
+        ifname = addr.get("ifname")
+
+        if ifname != "lo" and (oper := addr["operstate"]).upper() != "UP":
+            log.debug(
+                "Skipping bind address for non-up interface ifc=%s oper=%s",
+                ifname,
+                oper,
+            )
+            continue
+
+        if any(ifname.startswith(prefix) for prefix in ignore_interfaces):
+            log.debug(
+                "Skipping bind address for ignored interface type ifc=%s",
+                ifname,
+            )
             continue
 
         for ifc in addr["addr_info"]:

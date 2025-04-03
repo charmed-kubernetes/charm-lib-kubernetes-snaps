@@ -546,7 +546,7 @@ def create_service_account_key():
     return dest.read_text()
 
 
-def _get_global_addresses() -> List[str]:
+def _get_global_addresses() -> List:
     try:
         output = check_output(["ip", "-j", "-br", "addr", "show", "scope", "global"])
     except CalledProcessError as e:
@@ -557,7 +557,7 @@ def _get_global_addresses() -> List[str]:
     return json.loads(output.decode("utf8"))
 
 
-def _get_loopback_addresses() -> List[str]:
+def _get_loopback_addresses() -> List:
     try:
         output = check_output(["ip", "-j", "-br", "addr", "show", "lo"])
     except CalledProcessError as e:

@@ -7,7 +7,7 @@ from base64 import b64encode
 from pathlib import Path
 from socket import getfqdn, gethostname
 from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output
-from typing import Optional, Protocol
+from typing import Optional, List, Protocol
 from ops import ActionEvent
 
 import yaml
@@ -22,6 +22,10 @@ class ExternalCloud(Protocol):
 
     has_xcp: bool
     name: Optional[str]
+
+
+class SnapInstallError(Exception):
+    """Raised when a snap install fails for a detectable reason."""
 
 
 log = logging.getLogger(__name__)
@@ -542,13 +546,7 @@ def create_service_account_key():
     return dest.read_text()
 
 
-def get_bind_addresses(ipv4=True, ipv6=True):
-    def _as_address(addr_str):
-        try:
-            return ipaddress.ip_address(addr_str)
-        except ValueError:
-            return None
-
+def _get_global_addresses() -> List:
     try:
         output = check_output(["ip", "-j", "-br", "addr", "show", "scope", "global"])
     except CalledProcessError as e:
@@ -556,7 +554,28 @@ def get_bind_addresses(ipv4=True, ipv6=True):
         log.error("Unable to determine global addresses")
         log.exception(e)
         return []
+    return json.loads(output.decode("utf8"))
 
+
+def _get_loopback_addresses() -> List:
+    try:
+        output = check_output(["ip", "-j", "-br", "addr", "show", "lo"])
+    except CalledProcessError as e:
+        # stderr will have any details, and go to the log
+        log.error("Unable to determine loopback addresses")
+        log.exception(e)
+        return []
+    return json.loads(output.decode("utf8"))
+
+
+def get_bind_addresses(ipv4=True, ipv6=True):
+    def _as_address(addr_str):
+        try:
+            return ipaddress.ip_address(addr_str)
+        except ValueError:
+            return None
+
+    device_addresses = _get_loopback_addresses() + _get_global_addresses()
     ignore_interfaces = ("lxdbr", "flannel", "cni", "virbr", "docker")
     accept_versions = set()
     if ipv4:
@@ -565,11 +584,22 @@ def get_bind_addresses(ipv4=True, ipv6=True):
         accept_versions.add(6)
 
     addrs = []
-    for addr in json.loads(output.decode("utf8")):
-        if addr["operstate"].upper() != "UP" or any(
-            addr["ifname"].startswith(prefix) for prefix in ignore_interfaces
-        ):
-            log.debug(f"Skipping bind address for interface {addr.get('ifname')}")
+    for addr in device_addresses:
+        ifname = addr.get("ifname")
+
+        if ifname != "lo" and (oper := addr["operstate"]).upper() != "UP":
+            log.debug(
+                "Skipping bind address for non-up interface ifc=%s oper=%s",
+                ifname,
+                oper,
+            )
+            continue
+
+        if any(ifname.startswith(prefix) for prefix in ignore_interfaces):
+            log.debug(
+                "Skipping bind address for ignored interface type ifc=%s",
+                ifname,
+            )
             continue
 
         for ifc in addr["addr_info"]:
@@ -649,12 +679,14 @@ def install(channel, control_plane=False, upgrade=False):
             channel,
             ",".join(sorted(missing)),
         )
-        status.add(BlockedStatus(f"Not all snaps are available on channel={channel}"))
-        return
+        msg = f"Not all snaps are available on channel={channel}"
+        status.add(BlockedStatus(msg))
+        raise SnapInstallError(msg)
 
     if any(is_channel_swap(snap, channel) for snap in which_snaps) and not upgrade:
-        status.add(BlockedStatus("Needs manual upgrade, run the upgrade action."))
-        return
+        msg = "Needs manual upgrade, run the upgrade action."
+        status.add(BlockedStatus(msg))
+        raise SnapInstallError(msg)
 
     # Refresh with ignore_running=True ONLY for non-daemon apps (i.e. kubectl)
     # https://bugs.launchpad.net/bugs/1987331
@@ -803,24 +835,30 @@ def set_default_cni_conf_file(cni_conf_file):
 
 
 def upgrade_snaps(channel: str, event: ActionEvent, control_plane: bool = False):
-    log.info(f"Starting the upgrade of Kubernetes snaps to '{channel}' channel.")
+    """Upgrade the snaps from an upgrade action event."""
+    log_it = f"Starting the upgrade of Kubernetes snaps to {channel}."
+    event.log(log_it)
+    log.info(log_it)
+    error_message = None
+
     try:
         install(channel=channel, control_plane=control_plane, upgrade=True)
-    except (CalledProcessError, Exception) as e:
-        if isinstance(e, CalledProcessError):
-            error_message = f"Upgrade failed with a process error. stdout: {e.stdout}, stderr: {e.stderr}"
+    except status.ReconcilerError as e:
+        ec = e.__context__
+        if isinstance(ec, CalledProcessError):
+            error_message = f"Upgrade failed with a process error. stdout: {ec.stdout}, stderr: {ec.stderr}"
+        elif isinstance(ec, SnapInstallError):
+            error_message = f"Upgrade failed with a detectable error: {ec}"
         else:
-            error_message = f"An unexpected error occurred during the upgrade: {e}"
-
+            error_message = f"An unexpected error occurred during the upgrade: {ec}"
         log.exception(error_message)
-        status.add("Snap upgrade failed. Check action results for more information.")
+
+    if error_message:
         event.fail(error_message)
     else:
-        result_message = (
-            f"Successfully upgraded Kubernetes snaps to the '{channel}' channel."
-        )
-        log.info(result_message)
-        event.set_results({"result": result_message})
+        log_it = f"Successfully upgraded Kubernetes snaps to the {channel}."
+        log.info(log_it)
+        event.set_results({"result": log_it})
 
 
 def v1_taint_from_string(taint: str):

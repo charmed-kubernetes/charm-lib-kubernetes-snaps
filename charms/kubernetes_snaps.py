@@ -70,9 +70,13 @@ def configure_apiserver(
     extra_args_config,
     privileged,
     service_cidr,
-    external_cloud_provider: ExternalCloud,
+    external_cloud_provider: ExternalCloud,  # pylint: disable=unused-argument
     authz_webhook_conf_file: Optional[Path] = None,
 ):
+    """Configures the kube-apiserver arguments and config file based on current
+    relations.
+    """
+
     api_opts = {}
     feature_gates = []
 
@@ -158,12 +162,6 @@ def configure_apiserver(
     api_opts["proxy-client-key-file"] = "/root/cdk/client.key"
     api_opts["enable-aggregator-routing"] = "true"
     api_opts["client-ca-file"] = "/root/cdk/ca.crt"
-
-    if external_cloud_provider.has_xcp:
-        log.info("KubeApi: Uses an External Cloud Provider")
-        api_opts["cloud-provider"] = "external"
-    else:
-        log.info("KubeApi: No Cloud Features")
 
     api_opts["feature-gates"] = ",".join(feature_gates)
 

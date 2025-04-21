@@ -226,6 +226,5 @@ def test_configure_apiserver(mock_path, configure_kubernetes_service, external_c
         "audit-policy-file": "/some/path",
         "audit-webhook-config-file": "/some/path",
     }
-    if external_cloud.has_xcp:
-        expected_args["cloud-provider"] = "external"
+    assert "cloud-provider" not in expected_args
     assert expected_args == args

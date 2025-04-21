@@ -41,6 +41,7 @@ tls_ciphers_intermediate = [
     "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
 ]
 
+SEMVER_RE = re.compile(r"\b\d+(?:\.\d+)*\b")
 JUJU_CLUSTER = "juju-cluster"
 JUJU_CONTEXT = "juju-context"
 BASIC_SNAPS = ["kubectl", "kubelet", "kube-proxy"]
@@ -620,7 +621,7 @@ def get_snap_version(name: str) -> str:
     cmd = ["snap", "list", name]
     result = check_output(cmd)
     output = result.decode().strip()
-    match = re.search(r"\b\d+(?:\.\d+)*\b", output)
+    match = SEMVER_RE.search(output)
 
     if match:
         return match.group()
@@ -694,6 +695,13 @@ def install_snap(name: str, channel: str, classic=False, ignore_running=False):
     check_call(cmd)
 
 
+def _channel_map(snap_name: str) -> Optional[str]:
+    cmd = ["snap", "info", snap_name]
+    result = check_output(cmd)
+    output = yaml.safe_load(result)
+    return output.get("channels", {})
+
+
 def is_channel_available(snap_name: str, target_channel: str) -> bool:
     """
     Check if the target channel exists for a given snap.
@@ -705,10 +713,7 @@ def is_channel_available(snap_name: str, target_channel: str) -> bool:
     Returns:
     bool: True if snap channel contains a revision, False otherwise.
     """
-    cmd = ["snap", "info", snap_name]
-    result = check_output(cmd)
-    output = yaml.safe_load(result)
-    channels = output.get("channels", {})
+    channels = _channel_map(snap_name)
     target = channels.get(target_channel, None)
     return target and target != "--"
 
@@ -731,9 +736,16 @@ def is_channel_swap(snap_name: str, target_channel: str) -> bool:
     bool: True if an upgrade is needed, False otherwise.
     """
     is_refresh = is_snap_installed(snap_name)
+    channel_version = None
+    if rev := _channel_map(snap_name).get(target_channel, None):
+        if match := SEMVER_RE.search(rev):
+            channel_version = match.group()
+    if not channel_version:
+        raise SnapInstallError(
+            f"Cannot find version for {snap_name} on channel {target_channel}"
+        )
 
     if is_refresh and (installed_version := get_snap_version(snap_name)):
-        channel_version, *_ = target_channel.split("/")
         current = version.parse(installed_version)
         target = version.parse(channel_version)
         return (current.major, current.minor) != (target.major, target.minor)

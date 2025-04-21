@@ -159,10 +159,19 @@ def test_configure_kubelet(
     assert expected_args == args
 
 
+@pytest.mark.parametrize("kube_apiserver_version", ["1.28.7", "1.29.0"])
 @mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
 @mock.patch("charms.kubernetes_snaps.Path")
-def test_configure_apiserver(mock_path, configure_kubernetes_service, external_cloud):
+@mock.patch("charms.kubernetes_snaps.get_snap_version")
+def test_configure_apiserver(
+    snap_version,
+    mock_path,
+    configure_kubernetes_service,
+    kube_apiserver_version,
+    external_cloud,
+):
     mock_path().__truediv__().__str__.return_value = "/some/path"
+    snap_version.return_value = kube_apiserver_version
     kubernetes_snaps.configure_apiserver(
         "advertise_address",
         "audit_policy",
@@ -226,5 +235,6 @@ def test_configure_apiserver(mock_path, configure_kubernetes_service, external_c
         "audit-policy-file": "/some/path",
         "audit-webhook-config-file": "/some/path",
     }
-    assert "cloud-provider" not in expected_args
+    if external_cloud.has_xcp and kube_apiserver_version == "1.28.7":
+        expected_args["cloud-provider"] = "external"
     assert expected_args == args

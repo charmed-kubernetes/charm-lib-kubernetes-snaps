@@ -74,6 +74,11 @@ def configure_apiserver(
     external_cloud_provider: ExternalCloud,
     authz_webhook_conf_file: Optional[Path] = None,
 ):
+    """Configures the kube-apiserver arguments and config file based on current
+    relations.
+    """
+    apiserver_ver = _snap_version("kube-apiserver")
+
     api_opts = {}
     feature_gates = []
 
@@ -160,7 +165,7 @@ def configure_apiserver(
     api_opts["enable-aggregator-routing"] = "true"
     api_opts["client-ca-file"] = "/root/cdk/ca.crt"
 
-    if external_cloud_provider.has_xcp:
+    if external_cloud_provider.has_xcp and apiserver_ver < version.Version("1.29"):
         log.info("KubeApi: Uses an External Cloud Provider")
         api_opts["cloud-provider"] = "external"
     else:
@@ -608,7 +613,7 @@ def get_sandbox_image(registry) -> str:
     return f"{registry}/pause:3.9"
 
 
-def get_snap_version(name: str) -> str:
+def get_snap_version(name: str) -> Optional[str]:
     """
     Get the version of an installed snap package.
 
@@ -627,6 +632,12 @@ def get_snap_version(name: str) -> str:
         return match.group()
     else:
         log.info(f"Package '{name}' not found or no version available.")
+    return None
+
+
+def _snap_version(name: str) -> Optional[version.Version]:
+    if ver := get_snap_version(name):
+        return version.parse(ver)
     return None
 
 
@@ -745,8 +756,7 @@ def is_channel_swap(snap_name: str, target_channel: str) -> bool:
             f"Cannot find version for {snap_name} on channel {target_channel}"
         )
 
-    if is_refresh and (installed_version := get_snap_version(snap_name)):
-        current = version.parse(installed_version)
+    if is_refresh and (current := _snap_version(snap_name)):
         target = version.parse(channel_version)
         return (current.major, current.minor) != (target.major, target.minor)
     return False

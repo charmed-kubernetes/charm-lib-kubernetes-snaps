@@ -605,6 +605,9 @@ def get_public_address():
     cmd = ["unit-get", "public-address"]
     return check_output(cmd).decode("UTF-8").strip()
 
+def get_ingress_address():
+    cmd = ["unit-get", "ingress-address"]
+    return check_output(cmd).decode("UTF-8").strip()
 
 def get_sandbox_image(registry) -> str:
     # Try to track upstream version if possible, see for example:

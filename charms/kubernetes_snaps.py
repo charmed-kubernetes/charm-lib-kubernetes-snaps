@@ -660,7 +660,7 @@ def host_is_container():
 
 
 @status.on_error(BlockedStatus("Failed to install Kubernetes snaps"))
-def install(channel, control_plane=False, upgrade=False):
+def install(channel, control_plane=False, upgrade=False, hold=False):
     """Install or refresh Kubernetes snaps. This includes the basic snaps to
     talk to Kubernetes and run a Kubernetes node.
 
@@ -693,23 +693,55 @@ def install(channel, control_plane=False, upgrade=False):
     for snap in BASIC_SNAPS:
         install_snap(
             snap,
-            channel=channel,
+            channel,
+            upgrade,
             classic=True,
             ignore_running=snap == "kubectl",
+            hold=hold,
         )
 
     if control_plane:
         for snap in CONTROL_PLANE_SNAPS:
-            install_snap(snap, channel=channel)
+            install_snap(
+                snap,
+                channel,
+                upgrade,
+                hold=hold,
+            )
 
 
-def install_snap(name: str, channel: str, classic=False, ignore_running=False):
-    """Install or refresh a snap"""
+def install_snap(
+    name: str,
+    channel: str,
+    upgrade: bool,
+    classic=False,
+    ignore_running=False,
+    hold=False,
+):
+    """Install or refresh a snap
+
+    Args:
+        name (str): The name of the snap to install or refresh.
+        channel (str): The snap channel to install from.
+        upgrade (bool): If True, allows upgrading of the snap.
+        classic (bool, optional): If True, installs the snap in classic mode.
+        ignore_running (bool, optional): If True, ignores running processes when
+        refreshing the snap.
+        hold (bool, optional): If True, holds the snap to prevent automatic
+        refreshes.
+    """
     status.add(MaintenanceStatus(f"Installing {name} snap"))
 
     is_refresh = is_snap_installed(name)
+    if hold and is_refresh and not upgrade:
+        msg = f"Snap {name} is installed and held. Skipping refresh."
+        log.info(msg)
+        return
 
     cmd = ["snap", "refresh" if is_refresh else "install", name, "--channel", channel]
+
+    if hold:
+        cmd.append("--hold")
 
     if classic:
         cmd.append("--classic")
@@ -834,7 +866,9 @@ def set_default_cni_conf_file(cni_conf_file):
         dest.symlink_to(cni_conf_file)
 
 
-def upgrade_snaps(channel: str, event: ActionEvent, control_plane: bool = False):
+def upgrade_snaps(
+    channel: str, event: ActionEvent, hold=False, control_plane: bool = False
+):
     """Upgrade the snaps from an upgrade action event."""
     log_it = f"Starting the upgrade of Kubernetes snaps to {channel}."
     event.log(log_it)
@@ -842,7 +876,7 @@ def upgrade_snaps(channel: str, event: ActionEvent, control_plane: bool = False)
     error_message = None
 
     try:
-        install(channel=channel, control_plane=control_plane, upgrade=True)
+        install(channel=channel, control_plane=control_plane, upgrade=True, hold=hold)
     except status.ReconcilerError as e:
         ec = e.__context__
         if isinstance(ec, CalledProcessError):

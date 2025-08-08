@@ -17,6 +17,39 @@ def subprocess_call():
         yield mock_run
 
 
+@pytest.fixture(autouse=True)
+def subprocess_check_call():
+    with mock.patch("charms.kubernetes_snaps.check_call") as mock_run:
+        yield mock_run
+
+
+@pytest.mark.parametrize("hold", [True, False], ids=["hold", "no_hold"])
+@pytest.mark.parametrize("installed", [True, False], ids=["installed", "not_installed"])
+@pytest.mark.parametrize("upgrade", [True, False], ids=["upgrade", "install"])
+@mock.patch.object(kubernetes_snaps, "is_snap_installed")
+def test_install_snap_and_hold(
+    mock_is_installed, subprocess_check_call, hold, upgrade, installed
+):
+    snap_name = "test-snap"
+    channel = "1.28/stable"
+    mock_is_installed.return_value = installed
+
+    kubernetes_snaps.install_snap(snap_name, channel, upgrade, hold=hold)
+
+    mock_is_installed.assert_called_once_with(snap_name)
+    action = "refresh" if installed else "install"
+    if installed and not upgrade and hold:
+        subprocess_check_call.assert_not_called()
+    elif hold:
+        subprocess_check_call.assert_called_once_with(
+            ["snap", action, snap_name, "--channel", channel, "--hold"]
+        )
+    else:
+        subprocess_check_call.assert_called_once_with(
+            ["snap", action, snap_name, "--channel", channel]
+        )
+
+
 @mock.patch.object(kubernetes_snaps, "is_channel_swap", return_value=False)
 @mock.patch.object(kubernetes_snaps, "is_channel_available", return_value=True)
 @mock.patch.object(kubernetes_snaps, "install_snap", mock.MagicMock())

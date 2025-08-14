@@ -1,12 +1,19 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["charms"]
+
+[tool.hatch.version]
+source = "vcs"
 
 [project]
-name = "charm-lib-kubernetes-snaps"
-version = "0.0.0"
+name = "charms.kubernetes-snaps"
+dynamic = ["version"]
 authors = [
-  {name="George Kraft", email="george.kraft@canonical.com"},
+  {name="Adam Dyess", email="adam.dyess@canonical.com"},
+  {name="Mateo Florido", email="mateo.florido@canonical.com"},
 ]
 description = "Charm library for installing and configuring Kubernetes snaps"
 readme = "README.md"
@@ -25,3 +32,6 @@ classifiers = [
 [project.urls]
 "Homepage" = "https://github.com/charmed-kubernetes/charm-lib-kubernetes-snaps"
 "Bug Tracker" = "https://github.com/charmed-kubernetes/charm-lib-kubernetes-snaps/issues"
+
+[dependency-groups]
+publish = ["twine"]

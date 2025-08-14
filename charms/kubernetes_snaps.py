@@ -121,10 +121,13 @@ def configure_apiserver(
     # The list below need only include the plugins we want to enable
     # in addition to the defaults.
     #
-    # In 1.31, PersistentVolumeLabel was no longer available as an admission plugin
-    # https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers
 
     admission_plugins = ["NodeRestriction"]
+
+    # In 1.31, PersistentVolumeLabel was no longer available as an admission plugin
+    # https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers
+    if apiserver_ver < version.parse("1.31"):
+        admission_plugins.append("PersistentVolumeLabel")
 
     authorization_modes = authorization_mode.split(",")
     has_authz_webhook = "Webhook" in authorization_modes

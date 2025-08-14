@@ -5,6 +5,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["charms"]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.version]
 source = "vcs"
 
@@ -19,7 +22,7 @@ description = "Charm library for installing and configuring Kubernetes snaps"
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
-  "charms.contextual-status",
+  "charm-lib-contextual-status@git+https://github.com/charmed-kubernetes/charm-lib-contextual-status@release_1.29",
   "ops",
   "PyYAML",
   "packaging",

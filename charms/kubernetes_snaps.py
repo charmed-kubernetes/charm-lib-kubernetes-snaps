@@ -75,6 +75,11 @@ def configure_apiserver(
     external_cloud_provider: ExternalCloud,
     authz_webhook_conf_file: Optional[Path] = None,
 ):
+    """Configures the kube-apiserver arguments and config file based on current
+    relations.
+    """
+    apiserver_ver = _snap_version("kube-apiserver")
+
     api_opts = {}
     feature_gates = []
 
@@ -117,10 +122,13 @@ def configure_apiserver(
     # The list below need only include the plugins we want to enable
     # in addition to the defaults.
     #
-    # In 1.31, PersistentVolumeLabel was no longer available as an admission plugin
-    # https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers
 
     admission_plugins = ["NodeRestriction"]
+
+    # In 1.31, PersistentVolumeLabel was no longer available as an admission plugin
+    # https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers
+    if apiserver_ver < version.parse("1.31"):
+        admission_plugins.append("PersistentVolumeLabel")
 
     authorization_modes = authorization_mode.split(",")
     has_authz_webhook = "Webhook" in authorization_modes
@@ -160,7 +168,7 @@ def configure_apiserver(
     api_opts["enable-aggregator-routing"] = "true"
     api_opts["client-ca-file"] = "/root/cdk/ca.crt"
 
-    if external_cloud_provider.has_xcp:
+    if external_cloud_provider.has_xcp and apiserver_ver < version.Version("1.29"):
         log.info("KubeApi: Uses an External Cloud Provider")
         api_opts["cloud-provider"] = "external"
     else:
@@ -753,7 +761,7 @@ def get_sandbox_image(registry) -> str:
     return f"{registry}/pause:3.9"
 
 
-def get_snap_version(name: str) -> str:
+def get_snap_version(name: str) -> Optional[str]:
     """
     Get the version of an installed snap package.
 
@@ -772,6 +780,12 @@ def get_snap_version(name: str) -> str:
         return match.group()
     else:
         log.info(f"Package '{name}' not found or no version available.")
+    return None
+
+
+def _snap_version(name: str) -> Optional[version.Version]:
+    if ver := get_snap_version(name):
+        return version.parse(ver)
     return None
 
 
@@ -878,9 +892,8 @@ def is_channel_swap(snap_name: str, target_channel: str) -> bool:
     """
     is_refresh = is_snap_installed(snap_name)
 
-    if is_refresh and (installed_version := get_snap_version(snap_name)):
+    if is_refresh and (current := _snap_version(snap_name)):
         channel_version, *_ = target_channel.split("/")
-        current = version.parse(installed_version)
         target = version.parse(channel_version)
         return (current.major, current.minor) != (target.major, target.minor)
     return False

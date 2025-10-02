@@ -51,6 +51,36 @@ CONTROL_PLANE_SNAPS = [
     "kube-controller-manager",
     "kube-scheduler",
 ]
+APISERVER_CONFIG_FILES = [
+    "tls-cert-file",
+    "tls-private-key-file",
+    "kubelet-certificate-authority",
+    "kubelet-client-certificate",
+    "kubelet-client-key",
+    "authentication-token-webhook-config-file",
+    "service-account-signing-key-file",
+    "service-account-key-file",
+    "encryption-provider-config",
+    "etcd-cafile",
+    "etcd-keyfile",
+    "etcd-certfile",
+    "authorization-webhook-config-file",
+    "requestheader-client-ca-file",
+    "proxy-client-cert-file",
+    "proxy-client-key-file",
+    "client-ca-file",
+    "audit-policy-file",
+    "audit-webhook-config-file",
+]
+CONTROLLER_CONFIG_FILES = [
+    "root-ca-file",
+    "kubeconfig",
+    "authorization-kubeconfig",
+    "authentication-kubeconfig",
+    "service-account-private-key-file",
+    "tls-cert-file",
+    "tls-private-key-file",
+]
 
 
 def _snap_common_path(component) -> Path:
@@ -201,33 +231,7 @@ def configure_apiserver(
     else:
         remove_if_exists(audit_webhook_conf_path)
 
-    config_files = set(
-        map(
-            api_opts.get,
-            (
-                "tls-cert-file",
-                "tls-private-key-file",
-                "kubelet-certificate-authority",
-                "kubelet-client-certificate",
-                "kubelet-client-key",
-                "authentication-token-webhook-config-file",
-                "service-account-signing-key-file",
-                "service-account-key-file",
-                "encryption-provider-config",
-                "etcd-cafile",
-                "etcd-keyfile",
-                "etcd-certfile",
-                "authorization-webhook-config-file",
-                "requestheader-client-ca-file",
-                "proxy-client-cert-file",
-                "proxy-client-key-file",
-                "client-ca-file",
-                "audit-policy-file",
-                "audit-webhook-config-file",
-            ),
-        )
-    )
-
+    config_files = set(api_opts.get(k) for k in APISERVER_CONFIG_FILES)
     configure_kubernetes_service(
         "kube-apiserver", api_opts, extra_args_config, config_files
     )
@@ -268,21 +272,7 @@ def configure_controller_manager(
         log.info("KubeController: No Cloud Features")
 
     controller_opts["feature-gates"] = ",".join(feature_gates)
-
-    config_files = set(
-        map(
-            controller_opts.get,
-            (
-                "root-ca-file",
-                "kubeconfig",
-                "authorization-kubeconfig",
-                "authentication-kubeconfig",
-                "service-account-private-key-file",
-                "tls-cert-file",
-                "tls-private-key-file",
-            ),
-        )
-    )
+    config_files = set(controller_opts.get(k) for k in CONTROLLER_CONFIG_FILES)
 
     configure_kubernetes_service(
         "kube-controller-manager",
@@ -492,11 +482,11 @@ def _enable_config_hashing() -> bool:
     return env.lower() == "on"
 
 
-def _sha256_file(config_file: str) -> hashlib.sha256:
+def _sha256_file(path_to_file: str) -> hashlib.sha256:
     h = hashlib.sha256()
-    h.update(config_file.encode())
-    config_file = Path(config_file)
-    if Path.is_file(config_file):
+    h.update(path_to_file.encode())
+    config_file = Path(path_to_file)
+    if config_file.is_file():
         with config_file.open("rb") as file:
             while True:
                 # Reading is buffered, so we can read smaller chunks.
@@ -522,7 +512,7 @@ def _dict_compare(d1, d2):
 
 @contextlib.contextmanager
 def _calculate_config_difference(service: str, args, config_files):
-    args_hash = _snap_common_path(service) / "args-hash.txt"
+    args_hash = _snap_common_path(service) / "args-hash.yaml"
 
     if not _enable_config_hashing():
         log.debug("Config hashing disabled, skipping config change detection")

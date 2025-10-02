@@ -19,6 +19,31 @@ from packaging import version
 import charms.contextual_status as status
 
 
+FEATURE_CONFIG_HASHING = "config-hashing"
+FEATURES = [FEATURE_CONFIG_HASHING]
+
+_feature_flags = {f: False for f in FEATURES}
+
+
+def feature_enable(flag: str):
+    """Enable a feature flag."""
+    if flag not in FEATURES:
+        raise ValueError(f"Unknown feature: {flag}")
+    _feature_flags[flag] = True
+
+
+def feature_disable(flag: str):
+    """Disable a feature flag."""
+    if flag not in FEATURES:
+        raise ValueError(f"Unknown feature: {flag}")
+    _feature_flags[flag] = False
+
+
+def is_feature_enabled(flag: str) -> bool:
+    """Check if a feature flag is enabled."""
+    return _feature_flags.get(flag, False)
+
+
 class ExternalCloud(Protocol):
     """Definition of what attributes are available from external-cloud."""
 
@@ -514,7 +539,7 @@ def _dict_compare(d1, d2):
 def _calculate_config_difference(service: str, args, config_files):
     args_hash = _snap_common_path(service) / "args-hash.yaml"
 
-    if not _enable_config_hashing():
+    if not is_feature_enabled(FEATURE_CONFIG_HASHING):
         log.debug("Config hashing disabled, skipping config change detection")
         yield True
         args_hash.unlink(missing_ok=True)

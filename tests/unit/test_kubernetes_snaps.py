@@ -20,6 +20,14 @@ def subprocess_call():
         yield mock_run
 
 
+@pytest.fixture(autouse=True)
+def reset_features():
+    # Reset feature flags before each test
+    for feature in kubernetes_snaps.FEATURES:
+        kubernetes_snaps.feature_disable(feature)
+    yield
+
+
 @mock.patch.object(kubernetes_snaps, "is_channel_swap", return_value=False)
 @mock.patch.object(kubernetes_snaps, "is_channel_available", return_value=True)
 @mock.patch.object(kubernetes_snaps, "install_snap", mock.MagicMock())
@@ -286,9 +294,9 @@ def test_configure_kubernetes_service_no_hashing(
 @mock.patch("charms.kubernetes_snaps.service_restart")
 @mock.patch("charms.kubernetes_snaps._sha256_file")
 def test_configure_kubernetes_service_same_config(
-    mock_sha256_file, service_restart, check_call, caplog, monkeypatch
+    mock_sha256_file, service_restart, check_call, caplog
 ):
-    monkeypatch.setenv("JUJU_FEATURE_KUBERNETES_SNAP_CONFIG_HASHING", "on")
+    kubernetes_snaps.feature_enable(kubernetes_snaps.FEATURE_CONFIG_HASHING)
     caplog.set_level(logging.DEBUG)
     log_message = "Test: No config changes detected"
     base_args = {"arg1": "val1", "arg2": "val2"}
@@ -351,9 +359,8 @@ def test_configure_kubernetes_service_difference(
     file_content,
     log_message,
     caplog,
-    monkeypatch,
 ):
-    monkeypatch.setenv("JUJU_FEATURE_KUBERNETES_SNAP_CONFIG_HASHING", "on")
+    kubernetes_snaps.feature_enable(kubernetes_snaps.FEATURE_CONFIG_HASHING)
     caplog.set_level(logging.DEBUG)
     base_args = {"arg1": "val1", "arg2": "val2"}
     config_files = {"/path/to/config.file"}

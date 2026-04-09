@@ -35,3 +35,6 @@ classifiers = [
 
 [dependency-groups]
 publish = ["twine"]
+
+[tool.bandit]
+exclude_dirs = [".tox", ".venv", "venv"]

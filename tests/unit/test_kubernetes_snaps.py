@@ -70,6 +70,18 @@ channels:
     assert kubernetes_snaps.is_channel_available("my-snap", "1.29/stable")
 
 
+@mock.patch(
+    "charms.kubernetes_snaps._channel_map",
+    mock.MagicMock(
+        return_value={
+            "1.28/stable": "1.28.7         2025-03-13 (3553) 17MB classic",
+            "1.29/stable": "1.29.3         2025-03-13 (3553) 17MB classic",
+            "1.30/stable": "1.30.0         2025-03-13 (3553) 17MB classic",
+            "latest/stable": "1.30.0         2025-03-13 (3553) 17MB classic",
+            "1.31/stable": "--",
+        }
+    ),
+)
 def test_is_channel_swap(subprocess_call, subprocess_check_output):
     snap_list = """
 Name     Version       Rev    Tracking       Publisher   Notes
@@ -80,6 +92,11 @@ my-snap  1.29.0        22606  1.29/stable    canonical✓  -
     assert kubernetes_snaps.is_channel_swap("my-snap", "1.28/stable")
     assert not kubernetes_snaps.is_channel_swap("my-snap", "1.29/stable")
     assert kubernetes_snaps.is_channel_swap("my-snap", "1.30/stable")
+    assert kubernetes_snaps.is_channel_swap("my-snap", "latest/stable")
+    with pytest.raises(kubernetes_snaps.SnapInstallError):
+        kubernetes_snaps.is_channel_swap("my-snap", "1.31/stable")
+    with pytest.raises(kubernetes_snaps.SnapInstallError):
+        kubernetes_snaps.is_channel_swap("my-snap", "invalid/stable")
 
 
 @pytest.fixture(params=[None, "external"])

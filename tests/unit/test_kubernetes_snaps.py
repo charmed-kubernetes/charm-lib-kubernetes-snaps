@@ -1,4 +1,7 @@
+import hashlib
+import logging
 import pytest
+import yaml
 import unittest.mock as mock
 
 from charms import kubernetes_snaps
@@ -15,6 +18,14 @@ def subprocess_check_output():
 def subprocess_call():
     with mock.patch("charms.kubernetes_snaps.call") as mock_run:
         yield mock_run
+
+
+@pytest.fixture(autouse=True)
+def reset_features():
+    # Reset feature flags before each test
+    for feature in kubernetes_snaps.FEATURES:
+        kubernetes_snaps.feature_disable(feature)
+    yield
 
 
 @mock.patch.object(kubernetes_snaps, "is_channel_swap", return_value=False)
@@ -136,17 +147,17 @@ def test_configure_kubelet(
         {},
         {},
         external_cloud,
-        "kubeconfig",
+        "/path/to/kubeconfig",
         "node_ip",
         "registry.io",
         ["taint:NoExecute"],
     )
     configure_kubernetes_service.assert_called_once()
-    service, args, extra = configure_kubernetes_service.call_args[0]
+    service, args, extra, config_files = configure_kubernetes_service.call_args[0]
     assert service == "kubelet"
     assert extra == {}
     expected_args = {
-        "kubeconfig": "kubeconfig",
+        "kubeconfig": "/path/to/kubeconfig",
         "v": "0",
         "node-ip": "node_ip",
         "container-runtime-endpoint": "container_runtime_endpoint",
@@ -157,6 +168,14 @@ def test_configure_kubelet(
     if external_cloud.has_xcp:
         expected_args["cloud-provider"] = "external"
     assert expected_args == args
+    assert config_files == {
+        "/path/to/kubeconfig",
+        "/root/cdk/ca.crt",
+        "/root/cdk/kubelet/config.yaml",
+        "/root/cdk/server.crt",
+        "/root/cdk/server.key",
+        "/run/systemd/resolve/resolv.conf",
+    }
 
 
 @pytest.mark.parametrize("kube_apiserver_version", ["1.28.7", "1.29.0"])
@@ -187,7 +206,7 @@ def test_configure_apiserver(
         None,
     )
     configure_kubernetes_service.assert_called_once()
-    service, args, extra = configure_kubernetes_service.call_args[0]
+    service, args, extra, config_files = configure_kubernetes_service.call_args[0]
     assert service == "kube-apiserver"
     assert extra == {}
     expected_args = {
@@ -235,6 +254,158 @@ def test_configure_apiserver(
         "audit-policy-file": "/some/path",
         "audit-webhook-config-file": "/some/path",
     }
+    assert "/root/cdk/ca.crt" in config_files
     if external_cloud.has_xcp and kube_apiserver_version == "1.28.7":
         expected_args["cloud-provider"] = "external"
     assert expected_args == args
+
+
+@mock.patch("pathlib.Path.is_file", mock.MagicMock(return_value=True))
+@mock.patch("charms.kubernetes_snaps.check_call")
+@mock.patch("charms.kubernetes_snaps.service_restart")
+def test_configure_kubernetes_service_no_hashing(
+    service_restart, check_call, caplog, monkeypatch
+):
+    monkeypatch.setenv("JUJU_FEATURE_KUBERNETES_SNAP_CONFIG_HASHING", "")
+    caplog.set_level(logging.DEBUG)
+    log_message = "Config hashing disabled, skipping config change detection"
+    base_args = {"arg1": "val1", "arg2": "val2"}
+    extra_args = "arg2=val2-updated arg3=val3"
+    config_files = {"/path/to/config.file"}
+    with mock.patch("pathlib.Path.unlink") as mock_unlink:
+        kubernetes_snaps.configure_kubernetes_service(
+            "test", base_args, extra_args, config_files
+        )
+    service_restart.assert_called_once_with("snap.test.daemon")
+    check_call.assert_called_once_with(
+        [
+            "snap",
+            "set",
+            "test",
+            'args=--arg1="val1" --arg2="val2-updated" --arg3="val3"',
+        ]
+    )
+    mock_unlink.assert_called_once_with(missing_ok=True)
+    assert log_message in caplog.text
+
+
+@mock.patch("pathlib.Path.is_file", mock.MagicMock(return_value=True))
+@mock.patch("charms.kubernetes_snaps.check_call")
+@mock.patch("charms.kubernetes_snaps.service_restart")
+@mock.patch("charms.kubernetes_snaps._sha256_file")
+def test_configure_kubernetes_service_same_config(
+    mock_sha256_file, service_restart, check_call, caplog
+):
+    kubernetes_snaps.feature_enable(kubernetes_snaps.FEATURE_CONFIG_HASHING)
+    caplog.set_level(logging.DEBUG)
+    log_message = "Test: No config changes detected"
+    base_args = {"arg1": "val1", "arg2": "val2"}
+    extra_args = "arg2=val2-updated arg3=val3"
+    config_files = {"/path/to/config.file"}
+    mock_sha256_file.return_value = hashlib.sha256(b"--empty--")
+    hashed = {
+        "arg1": "cc1d9c865e8380c2d566dc724c66369051acfaa3e9e8f36ad6c67d7d9b8461a5",  # val1
+        "arg2": "05a202bd2f507925efc418afec49c00c5904bb532f5b59588dd1cb76773c5075",  # val2-updated
+        "arg3": "bac8d4414984861d5199b7a97699c728bee36c4084299b2ca905434cf65d8944",  # val3
+        "path:/path/to/config.file": "29a29ccd38921c14b4b02f7aebe56dc64473ca3e072830d762c588490399ef47",  # --empty--
+    }
+    yamlized = yaml.safe_dump(hashed)
+    with mock.patch(
+        "pathlib.Path.open", mock.mock_open(read_data=yamlized)
+    ) as mock_open:
+        kubernetes_snaps.configure_kubernetes_service(
+            "test", base_args, extra_args, config_files
+        )
+    mock_open.assert_called_once()
+    service_restart.assert_not_called()
+    check_call.assert_not_called()
+    mock_sha256_file.assert_has_calls(
+        [mock.call(f) for f in config_files], any_order=True
+    )
+    assert log_message in caplog.text
+
+
+@mock.patch("pathlib.Path.is_file", mock.MagicMock(return_value=True))
+@mock.patch("charms.kubernetes_snaps.check_call")
+@mock.patch("charms.kubernetes_snaps.service_restart")
+@mock.patch("charms.kubernetes_snaps._sha256_file")
+@pytest.mark.parametrize(
+    "extra_args, file_content, log_message",
+    [
+        ("arg2=val2-updated", b"--empty--", "Test: Dropped config value arg3"),
+        (
+            "arg2=val2-updated arg3=val3 arg4=val4",
+            b"--empty--",
+            "Test:   Added config value arg4",
+        ),
+        (
+            "arg2=val2-updated arg3=val3-updated",
+            b"--empty--",
+            "Test: Updated config value arg3",
+        ),
+        (
+            "arg2=val2-updated arg3=val3",
+            b"--something--",
+            "Test: Updated config value path:/path/to/config.file",
+        ),
+    ],
+    ids=["drop_key", "add_key", "update_key", "update_file"],
+)
+def test_configure_kubernetes_service_difference(
+    mock_sha256_file,
+    service_restart,
+    check_call,
+    extra_args,
+    file_content,
+    log_message,
+    caplog,
+):
+    kubernetes_snaps.feature_enable(kubernetes_snaps.FEATURE_CONFIG_HASHING)
+    caplog.set_level(logging.DEBUG)
+    base_args = {"arg1": "val1", "arg2": "val2"}
+    config_files = {"/path/to/config.file"}
+    mock_sha256_file.return_value = hashlib.sha256(file_content)
+    hashed = {
+        "arg1": "cc1d9c865e8380c2d566dc724c66369051acfaa3e9e8f36ad6c67d7d9b8461a5",
+        "arg2": "05a202bd2f507925efc418afec49c00c5904bb532f5b59588dd1cb76773c5075",  # val2-updated
+        "arg3": "bac8d4414984861d5199b7a97699c728bee36c4084299b2ca905434cf65d8944",  # val3
+        "path:/path/to/config.file": "29a29ccd38921c14b4b02f7aebe56dc64473ca3e072830d762c588490399ef47",  # --empty--
+    }
+    yamlized = yaml.safe_dump(hashed)
+    with mock.patch(
+        "pathlib.Path.open", mock.mock_open(read_data=yamlized)
+    ) as mock_open:
+        with mock.patch("yaml.safe_dump") as safe_dump:
+            kubernetes_snaps.configure_kubernetes_service(
+                "test", base_args, extra_args, config_files
+            )
+    service_restart.assert_called_once_with("snap.test.daemon")
+    check_call.assert_called_once()
+    mock_open.assert_has_calls([mock.call(), mock.call("w")], any_order=True)
+    safe_dump.assert_called_once()
+    assert log_message in caplog.text
+
+
+@mock.patch("pathlib.Path.is_file")
+def test_sha256_file(mock_is_file):
+    # Non Existent file
+    mock_is_file.return_value = False
+    hash = kubernetes_snaps._sha256_file("/path/to/file/1").hexdigest()
+    assert hash == "8054b8176bf428f030f0fb8b62ca2c26cf0b983196cfe97358cfb1e206aa9d75"
+
+    # Non Existent file with a different name
+    mock_is_file.return_value = False
+    hash = kubernetes_snaps._sha256_file("/path/to/file/2").hexdigest()
+    assert hash == "f337cf841ac045041455bff9cc3f2e0b8a2a5bf5dfe44a0152be04e4fc2355b5"
+
+    # Existing file with same name but empty
+    mock_is_file.return_value = True
+    with mock.patch("pathlib.Path.open", mock.mock_open(read_data=b"")):
+        hash = kubernetes_snaps._sha256_file("/path/to/file/2").hexdigest()
+    assert hash == "8d6fb329915afba8724a741f422894e127217854fe1934679e50d2115c2c3ca6"
+
+    # Existing file with same name with data
+    mock_is_file.return_value = True
+    with mock.patch("pathlib.Path.open", mock.mock_open(read_data=b"data")):
+        hash = kubernetes_snaps._sha256_file("/path/to/file/2").hexdigest()
+    assert hash == "63699fd3e47d9eb242fe6763bc387a9f3f6d1ae3f08bf7a7c437cec51ce2d0c4"

@@ -122,11 +122,13 @@ def test_update_kubeconfig_no_file(tmp_path):
         kubernetes_snaps.update_kubeconfig(nothing, ca="new-ca-data")
 
 
+@mock.patch("charms.kubernetes_snaps.write_if_changed")
 @mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
 @mock.patch("charms.kubernetes_snaps.Path")
 def test_configure_kubelet(
     mock_path,
     configure_kubernetes_service,
+    write_if_changed,
     external_cloud,
 ):
     kubernetes_snaps.configure_kubelet(
@@ -160,6 +162,7 @@ def test_configure_kubelet(
 
 
 @pytest.mark.parametrize("kube_apiserver_version", ["1.28.7", "1.29.0"])
+@mock.patch("charms.kubernetes_snaps.write_if_changed")
 @mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
 @mock.patch("charms.kubernetes_snaps.Path")
 @mock.patch("charms.kubernetes_snaps.get_snap_version")
@@ -167,6 +170,7 @@ def test_configure_apiserver(
     snap_version,
     mock_path,
     configure_kubernetes_service,
+    write_if_changed,
     kube_apiserver_version,
     external_cloud,
 ):

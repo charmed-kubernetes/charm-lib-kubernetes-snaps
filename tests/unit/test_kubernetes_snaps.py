@@ -1,8 +1,9 @@
+from unittest import mock
+
+import charms.contextual_status as status
 import pytest
-import unittest.mock as mock
 
 from charms import kubernetes_snaps
-import charms.contextual_status as status
 
 
 @pytest.fixture(autouse=True)

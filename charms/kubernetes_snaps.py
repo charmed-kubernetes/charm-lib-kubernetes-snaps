@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ipaddress
 import json
 import logging
@@ -10,21 +12,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from socket import getfqdn, gethostname
 from subprocess import DEVNULL, CalledProcessError, call, check_call, check_output
-from typing import Iterable, List, Optional, Protocol
-from ops import ActionEvent
-
-import yaml
-from ops import BlockedStatus, MaintenanceStatus
-from packaging import version
+from typing import Iterable, Protocol
 
 import charms.contextual_status as status
+import yaml
+from ops import ActionEvent, BlockedStatus, MaintenanceStatus
+from packaging import version
 
 
 class ExternalCloud(Protocol):
     """Definition of what attributes are available from external-cloud."""
 
     has_xcp: bool
-    name: Optional[str]
+    name: str | None
 
 
 class SnapInstallError(Exception):
@@ -55,7 +55,7 @@ CONTROL_PLANE_SNAPS = [
 
 
 def _snap_common_path(component) -> Path:
-    return Path("/var/snap/{}/common".format(component))
+    return Path(f"/var/snap/{component}/common")
 
 
 def encryption_config_path() -> Path:
@@ -74,7 +74,7 @@ def configure_apiserver(
     privileged,
     service_cidr,
     external_cloud_provider: ExternalCloud,
-    authz_webhook_conf_file: Optional[Path] = None,
+    authz_webhook_conf_file: Path | None = None,
 ):
     """Configures the kube-apiserver arguments and config file based on current
     relations.
@@ -416,7 +416,7 @@ def _is_regular_file(path) -> bool:
         return False
 
 
-def _service_inputs(base_args: dict, args: dict) -> List[str]:
+def _service_inputs(base_args: dict, args: dict) -> list[str]:
     """Files whose content is an input of a service, taken from its arguments.
 
     Only keys the library itself sets count (`base_args`), with the value after
@@ -433,7 +433,7 @@ def _service_inputs(base_args: dict, args: dict) -> List[str]:
     return inputs
 
 
-def _live_snap_args(service: str) -> Optional[str]:
+def _live_snap_args(service: str) -> str | None:
     """The `args` snap config of a service, or None if `snap get` fails."""
     try:
         output = check_output(["snap", "get", service, "args"]).decode("utf-8")
@@ -475,7 +475,7 @@ def _service_start_time(props: dict) -> float:
     return min(candidates, default=0.0)
 
 
-def _clamp_future_mtimes(inputs: List[str]) -> None:
+def _clamp_future_mtimes(inputs: list[str]) -> None:
     """Set the modification time of any input in the future to now.
 
     A stepped-back clock leaves files newer than every service start, which
@@ -494,7 +494,7 @@ def _clamp_future_mtimes(inputs: List[str]) -> None:
             os.utime(path, None)
 
 
-def _restart_reason(unit: str, inputs: Iterable[str]) -> Optional[str]:
+def _restart_reason(unit: str, inputs: Iterable[str]) -> str | None:
     inputs = [str(i) for i in inputs if i]
     _clamp_future_mtimes(inputs)
     output = check_output(
@@ -539,7 +539,7 @@ def _restart_reason(unit: str, inputs: Iterable[str]) -> Optional[str]:
     return None
 
 
-def restart_reason(unit: str, inputs: Iterable[str] = ()) -> Optional[str]:
+def restart_reason(unit: str, inputs: Iterable[str] = ()) -> str | None:
     """Why a systemd unit needs a restart, or None if it does not.
 
     Args:
@@ -585,7 +585,7 @@ def configure_kubernetes_service(
     # Remove any args with 'None' values (all k8s args are 'k=v') and
     # construct an arg string for use by 'snap set'.
     args = {k: v for k, v in args.items() if v is not None}
-    args_string = " ".join('--%s="%s"' % arg for arg in args.items())
+    args_string = " ".join(f'--{key}="{value}"' for key, value in args.items())
 
     unit = f"snap.{service}.daemon"
     args_changed = _live_snap_args(service) != args_string
@@ -662,10 +662,10 @@ RestartSec=10""",
 
 def update_kubeconfig(
     dest: os.PathLike,
-    ca: Optional[str] = None,
-    server: Optional[str] = None,
-    user: Optional[str] = None,
-    token: Optional[str] = None,
+    ca: str | None = None,
+    server: str | None = None,
+    user: str | None = None,
+    token: str | None = None,
 ) -> Path:
     """Update a kubeconfig file with the given parameters. If the file does not
     exist, it will be created. If the file does exist, it will be updated with
@@ -762,10 +762,9 @@ def get_bind_addresses(ipv4=True, ipv6=True):
 
     try:
         output = check_output(["ip", "-j", "-br", "addr", "show", "scope", "global"])
-    except CalledProcessError as e:
+    except CalledProcessError:
         # stderr will have any details, and go to the log
-        log.error("Unable to determine global addresses")
-        log.exception(e)
+        log.exception("Unable to determine global addresses")
         return []
 
     ignore_interfaces = ("lxdbr", "flannel", "cni", "virbr", "docker")
@@ -814,7 +813,7 @@ def get_sandbox_image(registry) -> str:
     return f"{registry}/pause:3.9"
 
 
-def get_snap_version(name: str) -> Optional[str]:
+def get_snap_version(name: str) -> str | None:
     """
     Get the version of an installed snap package.
 
@@ -836,7 +835,7 @@ def get_snap_version(name: str) -> Optional[str]:
     return None
 
 
-def _snap_version(name: str) -> Optional[version.Version]:
+def _snap_version(name: str) -> version.Version | None:
     if ver := get_snap_version(name):
         return version.parse(ver)
     return None
@@ -937,7 +936,7 @@ def is_snap_installed(snap_name) -> bool:
     return call(cmd, stdout=DEVNULL, stderr=DEVNULL) == 0
 
 
-def _snap_tracking(snap_name: str) -> Optional[str]:
+def _snap_tracking(snap_name: str) -> str | None:
     """The channel an installed snap tracks, or None if it is not installed or
     has no tracking channel (for example, installed from a local file)."""
     try:

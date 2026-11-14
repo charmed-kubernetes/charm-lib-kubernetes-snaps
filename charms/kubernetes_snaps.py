@@ -857,9 +857,22 @@ def install(channel, control_plane=False, upgrade=False):
         - upgrade (bool, optional): If True, allows upgrading of snaps. Defaults to
         False.
     """
-    which_snaps = BASIC_SNAPS + CONTROL_PLANE_SNAPS if control_plane else BASIC_SNAPS
+    # Refresh with ignore_running=True ONLY for non-daemon apps (i.e. kubectl)
+    # https://bugs.launchpad.net/bugs/1987331
+    candidates = [(snap, snap == "kubectl", True) for snap in BASIC_SNAPS]
+    if control_plane:
+        candidates += [(snap, False, False) for snap in CONTROL_PLANE_SNAPS]
 
-    if missing := {s for s in which_snaps if not is_channel_available(s, channel)}:
+    to_refresh = [
+        (snap, ignore_running, classic)
+        for snap, ignore_running, classic in candidates
+        if _needs_refresh(snap, channel, upgrade)
+    ]
+    if not to_refresh:
+        return
+
+    refresh_names = [snap for snap, _, _ in to_refresh]
+    if missing := {s for s in refresh_names if not is_channel_available(s, channel)}:
         log.warning(
             "The following snaps do not have a revision on channel=%s: %s",
             channel,
@@ -869,30 +882,15 @@ def install(channel, control_plane=False, upgrade=False):
         status.add(BlockedStatus(msg))
         raise SnapInstallError(msg)
 
-    if any(is_channel_swap(snap, channel) for snap in which_snaps) and not upgrade:
+    if any(is_channel_swap(snap, channel) for snap in refresh_names) and not upgrade:
         msg = "Needs manual upgrade, run the upgrade action."
         status.add(BlockedStatus(msg))
         raise SnapInstallError(msg)
-
-    # Refresh with ignore_running=True ONLY for non-daemon apps (i.e. kubectl)
-    # https://bugs.launchpad.net/bugs/1987331
-    to_refresh = [
-        (snap, snap == "kubectl", True)
-        for snap in BASIC_SNAPS
-        if _needs_refresh(snap, channel, upgrade)
-    ]
-    if control_plane:
-        to_refresh += [
-            (snap, False, False)
-            for snap in CONTROL_PLANE_SNAPS
-            if _needs_refresh(snap, channel, upgrade)
-        ]
 
     for snap, ignore_running, classic in to_refresh:
         install_snap(
             snap, channel=channel, classic=classic, ignore_running=ignore_running
         )
-
 
 def install_snap(name: str, channel: str, classic=False, ignore_running=False):
     """Install or refresh a snap"""

@@ -447,10 +447,14 @@ def run_install(monkeypatch, tracking, **kwargs):
 ALL_SNAPS = ks.BASIC_SNAPS + ks.CONTROL_PLANE_SNAPS
 
 
-def test_install_skips_snaps_already_tracking_the_channel(monkeypatch, install_env):
+def test_install_skips_snaps_already_tracking_the_channel(monkeypatch):
+    is_available = mock.MagicMock(side_effect=AssertionError("snap store called"))
+    install_snap = mock.MagicMock()
+    monkeypatch.setattr(ks, "is_channel_available", is_available)
+    monkeypatch.setattr(ks, "install_snap", install_snap)
     run_install(monkeypatch, {s: "1.35/stable" for s in ALL_SNAPS})
-    install_env.assert_not_called()
-
+    install_snap.assert_not_called()
+    is_available.assert_not_called()
 
 @pytest.mark.parametrize("tracking", ["1.34/stable", "1.35/candidate", "-", None])
 def test_install_refreshes_only_the_snap_that_needs_it(

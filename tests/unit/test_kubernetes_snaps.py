@@ -1,3 +1,4 @@
+import logging
 from unittest import mock
 
 import charms.contextual_status as status
@@ -22,6 +23,7 @@ def subprocess_call():
 @mock.patch.object(kubernetes_snaps, "is_channel_available", return_value=True)
 @mock.patch.object(kubernetes_snaps, "install_snap", mock.MagicMock())
 def test_upgrade_action_control_plane(is_channel_available, is_channel_swap, caplog):
+    caplog.set_level(logging.INFO)
     mock_event = mock.MagicMock()
     channel = "1.28/edge"
     with status.context(mock_event.model.unit):
@@ -43,6 +45,7 @@ def test_upgrade_action_control_plane(is_channel_available, is_channel_swap, cap
 def test_upgrade_action_control_plane_fails_available(
     is_channel_available, is_channel_swap, caplog
 ):
+    caplog.set_level(logging.INFO)
     mock_event = mock.MagicMock()
     channel = "1.28/edge"
     with status.context(mock_event.model.unit):

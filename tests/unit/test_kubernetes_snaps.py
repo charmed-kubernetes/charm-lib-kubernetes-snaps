@@ -1,8 +1,10 @@
+import logging
+from unittest import mock
+
+import charms.contextual_status as status
 import pytest
-import unittest.mock as mock
 
 from charms import kubernetes_snaps
-import charms.contextual_status as status
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +23,7 @@ def subprocess_call():
 @mock.patch.object(kubernetes_snaps, "is_channel_available", return_value=True)
 @mock.patch.object(kubernetes_snaps, "install_snap", mock.MagicMock())
 def test_upgrade_action_control_plane(is_channel_available, is_channel_swap, caplog):
+    caplog.set_level(logging.INFO)
     mock_event = mock.MagicMock()
     channel = "1.28/edge"
     with status.context(mock_event.model.unit):
@@ -42,6 +45,7 @@ def test_upgrade_action_control_plane(is_channel_available, is_channel_swap, cap
 def test_upgrade_action_control_plane_fails_available(
     is_channel_available, is_channel_swap, caplog
 ):
+    caplog.set_level(logging.INFO)
     mock_event = mock.MagicMock()
     channel = "1.28/edge"
     with status.context(mock_event.model.unit):
@@ -122,11 +126,13 @@ def test_update_kubeconfig_no_file(tmp_path):
         kubernetes_snaps.update_kubeconfig(nothing, ca="new-ca-data")
 
 
+@mock.patch("charms.kubernetes_snaps.write_if_changed")
 @mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
 @mock.patch("charms.kubernetes_snaps.Path")
 def test_configure_kubelet(
     mock_path,
     configure_kubernetes_service,
+    write_if_changed,
     external_cloud,
 ):
     kubernetes_snaps.configure_kubelet(
@@ -160,6 +166,7 @@ def test_configure_kubelet(
 
 
 @pytest.mark.parametrize("kube_apiserver_version", ["1.28.7", "1.29.0"])
+@mock.patch("charms.kubernetes_snaps.write_if_changed")
 @mock.patch("charms.kubernetes_snaps.configure_kubernetes_service")
 @mock.patch("charms.kubernetes_snaps.Path")
 @mock.patch("charms.kubernetes_snaps.get_snap_version")
@@ -167,6 +174,7 @@ def test_configure_apiserver(
     snap_version,
     mock_path,
     configure_kubernetes_service,
+    write_if_changed,
     kube_apiserver_version,
     external_cloud,
 ):
